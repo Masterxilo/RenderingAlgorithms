@@ -643,8 +643,10 @@ The most straightforward way to implement this is of course by storing the objec
 		public IntersectableList() {list = new LinkedList<Intersectable>();}
 		public IntersectableList(Collection<Intersectable> i) {this(); add(i);}
 		public IntersectableList(Intersectable... i) {this(); add(i);}
+        public IntersectableList(IntersectableList i) {this(); add(i);}
 		public IntersectableList add(Collection<Intersectable> i) {list.addAll(i); return this;}
 		public IntersectableList add(Intersectable... i) {list.addAll(Arrays.asList(i)); return this;} 
+        public IntersectableList add(IntersectableList i) {add(i.list); return this;} 
 		public Iterator<Intersectable> iterator() {return list.iterator();}
 	}
 	
@@ -3323,11 +3325,16 @@ We can visualize the material id (if present)
 <h4>Material Shading</h4>
 A material's job is to give a color for a given hitRecord. 
 It may also refer back to the Integrator to cast more rays.
-If you happen to be familiar with (realtime) computer graphics, this 
+To stop this process from recursing indefinitely, we impose a maximum recursion limit
+and keep track of recursion depth. If the limit is reached, we return black.
+	<recursion depth limit>=
+	5
+<p>
+If you happen to be familiar with (realtime) computer graphics, the 'shade' function 
 is basically supposed to do what a pixel shader does. 
 Only with vastly extended capabilities.
     <material methods and data>+=
-    public abstract Spectrum shade(HitRecord hitRecord, Integrator integrator);
+    public abstract Spectrum shade(HitRecord hitRecord, Integrator integrator, int depth);
     
 <h5>Material Integrator</h5>
 Everything an integrator for materials has to do is call the shade method.
@@ -3338,12 +3345,19 @@ Everything an integrator for materials has to do is call the shade method.
 		public MaterialIntegrator(Scene scene) {super(scene);}
 
 		public Spectrum integrate(Ray r) {
+			return integrate(r, 0);
+		}
+        
+        public Spectrum integrate(Ray r, int depth) {
+            if (depth > <recursion depth limit>) return new Spectrum();
+        
 			<get first intersection with scene>
 			if (hitRecord == null) return new Spectrum(0.f,0.f,0.f);
             if (hitRecord.t <= 0.f || hitRecord.intersectable.material == null)
                 return new Spectrum(1.f,0.f,0.f);
-			return hitRecord.intersectable.material.shade(hitRecord, this);
+			return hitRecord.intersectable.material.shade(hitRecord, this, depth+1);
 		}
+        
 	}
 		
 	[rt/integrators/MaterialIntegratorFactory.java]= 
@@ -3361,7 +3375,7 @@ Same result as DebugIntegrator.
 	package rt.materials;
 	<common imports>
 	public class DebugMaterial extends Material {
-		public Spectrum shade(HitRecord hitRecord, Integrator integrator) {
+		public Spectrum shade(HitRecord hitRecord, Integrator integrator, int depth) {
 			return DebugIntegrator.positionToColor(hitRecord.position);
 		}
 	}
@@ -3371,10 +3385,29 @@ Same result as NormalDebugIntegrator.
 	package rt.materials;
 	<common imports>
 	public class NormalDebugMaterial extends Material {
-		public Spectrum shade(HitRecord hitRecord, Integrator integrator) {
+		public Spectrum shade(HitRecord hitRecord, Integrator integrator, int depth) {
 			return NormalDebugIntegrator.normalToColor(hitRecord.normal);
 		}
 	}
+<h4>Intersectable Id</h4>
+	[rt/materials/IntersectableIdDebugMaterial.java]= 
+	package rt.materials;
+	<common imports>
+	public class IntersectableIdDebugMaterial extends Material {
+		public Spectrum shade(HitRecord hitRecord, Integrator integrator, int depth) {
+			return hitRecord.intersectable.id;
+		}
+	}
+<h4>Material Id</h4>
+	[rt/materials/MaterialIdDebugMaterial.java]= 
+	package rt.materials;
+	<common imports>
+	public class MaterialIdDebugMaterial extends Material {
+		public Spectrum shade(HitRecord hitRecord, Integrator integrator, int depth) {
+			return id;
+		}
+	} 
+    
 <h4>XYZGrid</h4>
 Instead of converting 3d positions to color continuously, we can modulo them to get 
 a grid pattern.
@@ -3420,7 +3453,7 @@ a grid pattern.
 			return M.modf(x, d) < p;
 		}
         
-		public Spectrum shade(HitRecord hitRecord, Integrator integrator) {
+		public Spectrum shade(HitRecord hitRecord, Integrator integrator, int depth) {
 			if (c(hitRecord.position().x + offset.x, lineThickness.x, backgroundRep.x) 
              || c(hitRecord.position().y + offset.y, lineThickness.y, backgroundRep.y) 
              || c(hitRecord.position().z + offset.z, lineThickness.z, backgroundRep.z))
@@ -3449,7 +3482,7 @@ a grid pattern.
                 1.f, 
                 null,
                 new Vector3f()
-                ), null);
+                ), null, 0);
         
         assertEquals(1.f, s.r, 0.0001f);
         
@@ -3459,7 +3492,7 @@ a grid pattern.
                 1.f, 
                 null,
                 new Vector3f()
-                ), null);
+                ), null, 0);
         
         assertEquals(0.f, s.r, 0.0001f);
     }
@@ -3906,6 +3939,14 @@ In the unlikely case that the normal and this vector happened to point in the sa
         <ray sphere intersection>
         
 		<determine halfspace>
+        
+        public static Vector3f reflect(Vector3f normal, Vector3f d) {
+            return M.sub(M.scale(2 * d.dot(normal), normal), d);
+        }
+        
+        public static Vector3f normalizedTowards(Vector3f from, Vector3f to) {
+            return M.normalize(M.sub(to, from));
+        }
         
 		/** Squared distance between v1 and v2, ||v1 - v2||^2 */
 		public static float dist2(Tuple3f v1, Tuple3f v2)

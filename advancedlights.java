@@ -1,5 +1,4 @@
-
-<h4>Light Simulation</h4>
+<h4>Light Transport Simulation</h4>
 Interesting and more (photo) realistic images are obtained once we add 
 a true simulation of light and light-transport to the scene.
 
@@ -16,16 +15,180 @@ those intersectables with the flag set into a list of "light sources".
     <additional scene data>+=
 		protected IntersectableList lightList;
 		public IntersectableList getLightList() {
+            if (lightList != null) return lightList;
+            lightList = new IntersectableList();
+            addToLightList(lightList, root);
             return lightList;
         }
+        private void addToLightList(IntersectableList l, Intersectable i) {
+            if (i.isLight) l.add(i);
+            
+            for (Intersectable j : i) 
+                addToLightList(l, j);
+        }
 
-<h3>Incident Ray/To-Viewer/Eye/Observer/Out Direction w</h3>
-The direction towards the origin
-of the ray that hit the surface is often useful for shading. 
-This unit vector points away from the surface, in the direction
-opposite to that of the incident ray.
+<h5>Direct lighting, simple shading, no sampling</h5>
+For the following simple approach to shading simulation with point lights 
+traditionally used in realtime computer graphics, it is useful to add the following 
+terminology:
+<ul>
+<li>w points away from the surface, in the direction opposite to that of the incident ray,
+i.e. it points towards the observer (eye).
 	<hit record datastructure>+=
 		public Vector3f w() {return M.negate(ray.direction);}
+<li>
+    [rt/intersectables/Point.java]= 
+	package rt.intersectables;
+	<common imports>
+	public class Point extends Intersectable {
+		Vector3f position;
+		public PointLight(Vector3f position) {
+			this.position = new Vector3f(position);
+		}
+		public HitRecord intersect(Ray r) {return null;}
+	}
+<li>
+    [rt/lightsources/PointLight.java]= 
+	package rt.lightsources;
+	<common imports>
+	public class PointLight extends Point {
+		Vector3f position;
+		Spectrum emission;		
+		public PointLight(Vector3f position, Spectrum emission)
+		{
+            this(position);
+            this.emission = emission;
+		}
+	}
+</ul>
+
+<h6>Lambert Diffuse + Blinn Specular</h6>
+This lighting model is completely additive.
+<img src=shade.png></img>
+The formula for a single light source thus translates to:
+    <blinn evaluate brdf>=
+	private Spectrum evaluateBlinnPhong(Vector3f n, Vector3f e, Vector3f L) {
+		Vector3f h = <unit halfway vector>;
+		return 
+			new Spectrum(kd).mult(M.clamp(L.dot(n))).add(
+			new Spectrum(ks).mult(M.powf (h.dot(n), s))
+		);
+	}
+    <unit halfway vector>=
+        M.normalize(M.add(L, e))
+        
+ks is the specular color, which is white for most real materials.
+s is the shininess parameter.
+The power deposited per area by and isotropic point light source decreases with 1/r^2,
+and the color of the light source simply multiplies with whatever is reflected.
+    <compute contribution s of lightsource l>=
+    Vector3f lightDir = M.sub(l.position, hitRecord.position());
+    float r2 = M.normalizeAndGetLength(lightDir);
+    r2 *= r2;
+    
+    Spectrum s = hitRecord.material.evaluateBRDF(hitRecord.normal, hitRecord.w(), lightDir); 
+    s.mult(l.emission);
+    s.mult(1.f/r2);
+    
+<h7>Hard Shadows</h7>
+We also add to the integrator the possibility to determine the (mutual) visibility v(a, b) 
+between two points a and b. 
+    <integrator methods>+=
+    public HitRecord visibilityIntersect(Vector3f a, Vector3f b) {
+        Vector3f d = M.sub(b, a);
+        HitRecord shadowHit = root.intersect(Ray.biased(a, d));
+        if (<hit after b>) return null;
+        return shadowHit;
+    }
+    
+    public HitRecord mutuallyVisible(Vector3f a, Vector3f b) {
+        return visibilityIntersect(a,b) == null;
+    }
+    
+    <hit after b>=
+    shadowHit.t > 1.f;
+    
+Where
+    <ray methods>+=
+    private static final float BIAS = 0.000001f;
+    public static Ray biased(Vector3f o, Vector3f d) {
+        return new Ray(M.t(hitRecord.position, d, BIAS), d);
+    }
+avoids "shadow acne".
+    <shadow test>=
+    if (!integrator.mutuallyVisible(hitRecord.position(), l.position)) 
+        continue;
+    
+    [rt/materials/Blinn.java]= 
+	package rt.materials;
+	<common imports>
+	public class Blinn extends Material {
+        float s;
+		Spectrum ks;
+		Spectrum kd;
+		public Blinn(Spectrum kd, Spectrum ks, float s) {
+			this.kd = kd; this.ks = ks; this.s = s;
+		}
+        
+		public Spectrum shade(HitRecord hitRecord, Integrator integrator, int depth) {
+            Spectrum outgoing = new Spectrum();	
+            
+			for (Intersectable i : integrator.getLightList()) {
+                if (!(i instanceof PointLight)) continue;
+                PointLight l = (PointLight)i;
+                
+                <shadow test>
+                <compute contribution s of lightsource l>
+                
+                outgoing.add(s);
+            }
+            
+            return outgoing
+		}
+	}
+    
+<h6>Reflection</h6>
+As a simple variant, we can determine the diffuse color by reflecting the incoming 
+direction on the surface normal and looking up the color there.
+This gives mirror-like reflection.
+    [rt/materials/Reflective.java]= 
+	package rt.materials;
+	<common imports>
+	public class Blinn extends Material {
+        float s;
+		Spectrum ks;
+		Spectrum kd;
+		public Blinn(Spectrum kd, Spectrum ks, float s) {
+			this.kd = kd; this.ks = ks; this.s = s;
+		}
+        
+		public Spectrum shade(HitRecord hitRecord, Integrator integrator, int depth) {
+            Spectrum outgoing = new Spectrum();	
+            
+			for (Intersectable i : integrator.getLightList()) {
+                if (!(i instanceof PointLight)) continue;
+                PointLight l = (PointLight)i;
+                
+                <shadow test>
+                <compute contribution s of lightsource l>
+                
+                outgoing.add(s);
+            }
+            
+            return outgoing
+		}
+	}
+<h6>Refraction</h6>
+We can also look up the diffuse color by casting a ray through 
+
+<h6>Fresnel</h6>
+
+<h5>Physically based shading</h5>
+
+
+<h3>Incident Ray/To-Viewer/Eye/Observer/Out Direction w</h3>
+
+
 
 <h3>Surface Tangents</h3> 
 The normalized tangent vectors at the hit point are 
@@ -65,8 +228,6 @@ the emission by sampling a point on a light source.
 		 * @return BRDF value
 		 */
 		public Spectrum evaluateBRDF(HitRecord hitRecord, Vector3f wOut, Vector3f wIn);
-
-
 
         
 		/**
@@ -483,30 +644,6 @@ the sample.
     
 
 
-This shows the hitpoint uv values.
-<img src=uvs.png></img>
-	[rt/integrators/UVDebugIntegrator.java]= 
-	package rt.integrators;
-	<common imports>
-	public class UVDebugIntegrator extends DebugIntegrator {
-		public UVDebugIntegrator(Scene scene) {super(scene);}
-		
-		public Spectrum integrate(Ray r) {
-			HitRecord hitRecord = scene.getIntersectable().intersect(r);
-			if (hitRecord == null) return new Spectrum(0.f,0.f,0.f);
-			if (hitRecord.t <= 0.f) return new Spectrum(1.f,0.f,0.f);
-			return new Spectrum(hitRecord.u, hitRecord.v, 0);
-		}
-
-	}
-		
-	[rt/integrators/UVDebugIntegratorFactory.java]= 
-	package rt.integrators;
-	import rt.*;
-	public class UVDebugIntegratorFactory extends IntegratorFactory {
-		public Integrator make(Scene scene) {return new UVDebugIntegrator(scene);}
-	}
-
 <h4>Point Light Shadowless Integrator</h4>
 Given a two dimensional random uniformly distributed sample in (0,1)^2,
 this should return a uniformly sampled location on the surface of the intersectable.
@@ -649,7 +786,7 @@ As for the lighting, we just need to add the shadowtest, adding some bias to avo
 	package rt.integrators;
 	<common imports>
 	public class WhittedIntegrator extends PointLightIntegrator {
-		static final float BIAS = 0.0001f;
+
 		public WhittedIntegrator(Scene scene){super(scene);}
 		
 		/** Only ShadingSample’s direction w is considered (is that how shadingSample should be used?) */
