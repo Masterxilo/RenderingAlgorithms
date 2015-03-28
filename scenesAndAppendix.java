@@ -109,59 +109,7 @@
 	<beautiful scenes>+=
 	new AreaLightScene(),
     
-<h4>ShadowScene</h4>
-In the following scenes, we have a backplane at z=
-	<backplane z>=
-	-3.15f
-	
-and a groundplane at y
-	<groundplane y>=
-	-1.5f
-	
-The sphere in the center is at the origin and the camera at 0,0,5.
 
-The light sources are at y = 3, z = 2 and shifted left and right:
-	<some light sources>=
-	LightGeometry pointLight1 = new PointLight(
-		new Vector3f(-1.f, 3.f, 2.f), 
-		new Spectrum(44.f));
-	LightGeometry pointLight2 = new PointLight(
-		new Vector3f(1.f, 3.f, 2.f),
-		new Spectrum(44.f));
-	lightList = new LightList();
-	lightList.add(pointLight1);
-	lightList.add(pointLight2);
-	
-<img src="output/rt.testscenes.ShadowScene 1SPP.png"></img>
-	[rt/testscenes/ShadowScene.java]= 
-	package rt.testscenes;
-	<common imports>
-	public class ShadowScene extends PinholeCameraScene {
-		public ShadowScene()
-		{
-			super(new Vector3f(0.f, 0.f, 5.f));
-			setDimensions(512);
-			integratorFactory = new WhittedIntegratorFactory();
-			<ground and back plane>
-			
-			root =  new IntersectableList().add(
-				groundPlane,
-				backPlane,
-				new CSGSphere()
-				);
-			
-			<some light sources>
-		}
-	}
-	<beautiful scenes>+=
-	new ShadowScene(),
-	
-	<ground and back plane>=
-	XYZGrid grid = new XYZGrid(new Spectrum(0.2f, 0.f, 0.f), new Spectrum(1.f, 1.f, 1.f), 0.1f, new Vector3f(0.f, 0.3f, 0.f));
-	CSGPlane groundPlane = new CSGPlane(new Vector3f(0.f, 1.f, 0.f), - <groundplane y>);
-	groundPlane.material = grid;
-	CSGPlane backPlane = new CSGPlane(new Vector3f(0.f, 0.f, 1.f), - <backplane z>);
-	backPlane.material = grid;		
 
 <img src="output/rt.testscenes.RefractionScene 1SPP.png"></img>
 	[rt/testscenes/RefractionScene.java]= 
@@ -214,30 +162,7 @@ The light sources are at y = 3, z = 2 and shifted left and right:
 	<beautiful scenes>+=
 	new RefractionScene2(),
 	
-<h4>ReflectionScene</h4>
-<img src="output/rt.testscenes.ReflectionScene 1SPP.png"></img>
-	[rt/testscenes/ReflectionScene.java]= 
-	package rt.testscenes;
-	<common imports>
-	public class ReflectionScene extends PinholeCameraScene {
-		public ReflectionScene() {
-			super(new Vector3f(0.f, 0.f, 5.f));
-			setDimensions(512);
-			integratorFactory = new WhittedIntegratorFactory();
-			<ground and back plane>
 
-			root =  new IntersectableList().add(
-				groundPlane,
-				backPlane,
-				new CSGSphere(new Vector3f(), 1, new Reflective()),
-				new CSGSphere(new Vector3f(2.f, 0, 0), 1)
-				);
-			
-			<some light sources>
-		}
-	}
-	<beautiful scenes>+=
-	new ReflectionScene(),
 	
 <h4>CSGScene</h4>
 <img src="output/rt.testscenes.CSGScene 1SPP.png"></img>

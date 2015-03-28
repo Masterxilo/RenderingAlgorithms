@@ -1368,7 +1368,8 @@ Mathematically speaking a ball.
 	<common imports>
 
 	public class CSGSphere extends CSGCompound {
-        public CSGSphere() {this(new Vector3f(), 1.f);}
+        public CSGSphere() {this(new Vector3f());}
+        public CSGSphere(Vector3f p) {this(p, 1.f);}
 		public CSGSphere(Vector3f center, float radius) {		
 			Matrix4f m = new Matrix4f(); m.setIdentity();
             m.m00 = radius;                                 m.m03 = center.x;
@@ -3707,6 +3708,37 @@ avoids "shadow acne".
 for reasons that will become apparant in the next slide, the diffuse color is a parameter to 
 the shade method.
 
+Diffuse term only
+    [rt/materials/Diffuse.java]= 
+	package rt.materials;
+	<common imports>
+	public class Diffuse extends Blinn {
+		public Diffuse(Spectrum kd) {
+			super(kd, new Spectrum(), 1.f);
+		}
+        public Diffuse() {this(new Spectrum(1.f));}
+	}
+    
+Take the diffuse term from some other material's shading function and multiply:
+    [rt/materials/DiffuseFrom.java]= 
+	package rt.materials;
+	<common imports>
+	public class DiffuseFrom extends Diffuse {
+        Material m;
+		public DiffuseFrom(Material m, Spectrum kd) {
+            this.m = m;
+            super(kd);
+		}
+        public DiffuseFrom(Material m) {
+            this(m, new Spectrum(1.f));
+		}
+        public Spectrum shade(HitRecord hitRecord, Integrator integrator, int depth) {
+            Spectrum mkd = m.shade(hitRecord, integrator, dept);
+            mkd.mult(kd);
+            return shade(mkd, hitRecord, integrator, depth);
+		}
+	}
+
 <h7>Blinn sample scene</h7>
 Simple scene using a Blinn material.	
 <img src="output/rt.testscenes.BlinnTest 1SPP.png"></img>
@@ -3755,7 +3787,71 @@ Simple scene using a Blinn material.
         assertTrue(b.getLightList().contains(b.pl1));
         assertTrue(b.getLightList().contains(b.pl2));
     }
+    
+<h7>ShadowScene</h7>
+In the following scenes, we have a backplane at z=
+	<backplane z>=
+	-3.15f
+	
+and a groundplane at y
+	<groundplane y>=
+	-1.5f
+	
+The sphere in the center is at the origin and the camera at 0,0,5.
 
+The light sources are at y = 3, z = 2 and shifted left and right:
+	<some light sources>=
+	PointLight pointLight1 = new PointLight(
+		new Vector3f(-1.f, 3.f, 2.f), 
+		new Spectrum(44.f));
+	PointLight pointLight2 = new PointLight(
+		new Vector3f(1.f, 3.f, 2.f),
+		new Spectrum(44.f));
+	
+<img src="output/rt.testscenes.ShadowScene 1SPP.png"></img>
+	[rt/testscenes/ShadowScene.java]= 
+	package rt.testscenes;
+	<common imports>
+	public class ShadowScene extends PinholeCameraScene {
+		public ShadowScene()
+		{
+			super(new Vector3f(0.f, 0.f, 5.f));
+			setDimensions(512);
+			integratorFactory = new MaterialIntegratorFactory();
+            
+			<ground and back plane>
+			
+            CSGSphere sph = new CSGSphere();
+            sph.setMaterial(new Diffuse());
+			<some light sources>
+			root =  new IntersectableList(
+				groundPlane,
+				backPlane,
+				sph,
+                pointLight1,
+                pointLight2
+				);
+			root.setMaterial(new Diffuse());
+		}
+	}
+	<beautiful scenes>+=
+	new ShadowScene(),
+	
+	<ground and back plane>=
+	Material grid = new DiffuseFrom(new XYZGrid(
+        new Spectrum(0.2f, 0.f, 0.f),
+        new Vector3f(0.1f, 0.1f, 0.1f),
+        new Spectrum(1.f, 1.f, 1.f), 
+        new Vector3f(0.3f, 0.3f, 0.3f),
+        
+        new Vector3f()));
+	CSGPlane groundPlane = new CSGPlane(new Vector3f(0.f, 1.f, 0.f), - <groundplane y>);
+	groundPlane.setMaterial(grid);
+	CSGPlane backPlane = new CSGPlane(new Vector3f(0.f, 0.f, 1.f), - <backplane z>);
+	backPlane.setMaterial(grid);		
+    
+
+    
 <h6>Reflection</h6>
 As a simple variant, we can determine the diffuse color by reflecting the incoming 
 direction on the surface normal and looking up the color there.
@@ -3767,33 +3863,81 @@ This gives mirror-like reflection.
     [rt/materials/Reflective.java]= 
 	package rt.materials;
 	<common imports>
-	public class Reflective extends Blinn {
-		public Reflective(Spectrum kd, Spectrum ks, float s) {
-			super(kd, ks, s);
-		}
-        public Reflective() {
-			this(new Spectrum(1), new Spectrum(0), 1.f);
-		}
-        
+	public class Reflective extends Material {
         public Spectrum evaluateReflection(HitRecord hitRecord, Integrator integrator, int depth) {
             Vector3f d = hitRecord.reflectedW();
             <evaluate spectrum in direction d>
         }
         
 		public Spectrum shade(HitRecord hitRecord, Integrator integrator, int depth) {
-            Spectrum mkd = evaluateReflection(hitRecord, integrator, depth);
-            <tint diffuse and shade>
+            return evaluateReflection(hitRecord, integrator, depth);
 		}
 	}
     
-    <tint diffuse and shade>=
-        mkd.mult(kd);
-        return super.shade(mkd, hitRecord, integrator, depth);
-        
     <evaluate spectrum in direction d>=
         return integrator.integrate(Ray.biased(hitRecord.position(), d), depth);
         
+<h4>ReflectionScene</h4>
+<img src="output/rt.testscenes.ReflectionScene 1SPP.png"></img>
+	[rt/testscenes/ReflectionScene.java]= 
+	package rt.testscenes;
+	<common imports>
+	public class ReflectionScene extends PinholeCameraScene {
+		public ReflectionScene() {
+			super(new Vector3f(0.f, 0.f, 5.f));
+			setDimensions(512);
+			integratorFactory = new MaterialIntegratorFactory();
+			<ground and back plane>
+
+            CSGSphere sph = new CSGSphere();
+            sph.setMaterial(new Reflective());
+            
+            CSGSphere sph2 = new CSGSphere(new Vector3f(2.f, 0, 0));
+            sph2.setMaterial(new Diffuse());
+            
+            CSGSphere sph3 = new CSGSphere(new Vector3f(-2.f, 0, 0));
+            sph3.setMaterial(new DiffuseFrom(new Reflective()));
+            
+			<some light sources>
+			root = new IntersectableList(
+				groundPlane,
+				backPlane,
+                sph,sph2,sph3,
+                pointLight1,
+                pointLight2
+				);
+		}
+	}
+	<beautiful scenes>+=
+	new ReflectionScene(),
     
+<img src="output/rt.testscenes.RefractionScene 1SPP.png"></img>
+	[rt/testscenes/RefractionScene.java]= 
+	package rt.testscenes;
+	<common imports>
+	public class RefractionScene extends PinholeCameraScene {
+		public RefractionScene()
+		{
+			super(new Vector3f(0.f, 0.f, 5.f));
+			setDimensions(512);
+			integratorFactory = new MaterialIntegratorFactory();
+			<ground and back plane>
+			
+            CSGSphere sph = new CSGSphere();
+            sph.setMaterial(new Refractive(1.3f));
+            
+			<some light sources>
+			root =  new IntersectableList(
+				groundPlane,
+				backPlane,
+                sph,
+                pointLight1,
+                pointLight2
+				);
+		}
+	}
+	<beautiful scenes>+=
+	new RefractionScene(),
 <h6>Refraction</h6>
 We can also look up the diffuse color by casting a ray through the surface of the object, 
 distroting its direction according to snell's law of refraction
@@ -3981,12 +4125,8 @@ Let us refract a ray coming from -1,-1,0 on the yz plane at a surface with refra
 	<common imports>
 	public class Refractive extends Reflective {
 		float n;
-		public Refractive(Spectrum kd, Spectrum ks, float s, float n) {
-			super(kd, ks, s);
-            this.n = n;
-		}
         public Refractive(float n) {
-			this(new Spectrum(1), new Spectrum(0), 1.f, n);
+			this.n = n;
 		}
         
         <define refraction>
@@ -3997,8 +4137,7 @@ Let us refract a ray coming from -1,-1,0 on the yz plane at a surface with refra
         }
         
 		public Spectrum shade(HitRecord hitRecord, Integrator integrator, int depth) {
-            Spectrum mkd = evaluateRefraction(hitRecord, integrator, depth);
-            <tint diffuse and shade>
+            return evaluateRefraction(hitRecord, integrator, depth);
 		}
 	}
     
@@ -4024,6 +4163,9 @@ reflected and refracted color.
 	package rt.materials;
 	<common imports>
 	public class Fresnel extends Refractive {
+        public Fresnel(float n) {
+			super(n);
+		}
         <schlick fresnel factor>
         
 		public Spectrum shade(HitRecord hitRecord, Integrator integrator, int depth) {
@@ -4032,11 +4174,44 @@ reflected and refracted color.
             float F = schlickF(hitRecord);
             reflected.mult(F);
             refracted.mult(1-F);
-            
-            return super.shade(reflected.add(refracted), hitRecord, integrator, depth);
+            return reflected.add(refracted);
 		}
 	}
     
+    [rt/materials/FresnelReflectRefract.java]= 
+	package rt.materials;
+	<common imports>
+	public class FresnelReflectRefract extends MixMaterials {
+        public FresnelReflectRefract(float n) {
+			super(new Reflective(), new Refractive(n), new Fresnel(n));
+		}
+	}
+    
+<h3>Mix Materials</h3>
+Like the opengl mix function, this mixes between two materials
+based on a third one that should give values between 0 and 1.
+If it is 1 we return the first, if 0 the second material.
+    [rt/materials/MixMaterials.java]= 
+	package rt.materials;
+	<common imports>
+	public class MixMaterials extends Material {
+        Material m1, m2, blend;
+        public MixMaterials(Material m1, Material m2, Material blend) {
+			this.m1 = m1; this.m2 = m2; this.blend = blend;
+		}
+        
+		public Spectrum shade(HitRecord hitRecord, Integrator integrator, int depth) {
+            Spectrum a = m1.shade(hitRecord, integrator, depth);
+            Spectrum b = m2.shade(hitRecord, integrator, depth);
+            <mix colors a and b>
+            return a.add(b);
+		}
+	}
+    
+    <mix colors a and b>=
+    Spectrum s = blend.shade(hitRecord, integrator, depth);
+    a.mult(s);
+    b.mult(new Spectrum(1-s.r,1-s.g,1-s.b));
     
 <h2>Sampler</h2>
 Samplers make random samples, which are used for Monte Carlo rendering. The 
