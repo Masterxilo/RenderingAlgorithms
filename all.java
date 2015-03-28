@@ -2538,7 +2538,7 @@ to be precise.
             integratorFactory = new MaterialIntegratorFactory();
             
             root.setMaterial(new XYZGrid(
-                new Spectrum(1,0,0), 
+                new Spectrum(0,1,0), 
                 new Vector3f(0.1f,0.1f,0.1f),
                 new Spectrum(1), 
                 new Vector3f(1,1,1),
@@ -3096,6 +3096,9 @@ via
     <get first intersection with scene>=
     HitRecord hitRecord = scene.getIntersectable().intersect(r);
     
+    if (hitRecord == null) return Integrator.BACKGROUND;
+    if (hitRecord.t <= 0.f) return Integrator.ERROR; // should not happen
+    
 An integrator thus takes a ray r
 (that might be starting at the camera, or some point on an object’s surface) 
 and evaluates the color of the surface it hits.
@@ -3120,6 +3123,11 @@ of the rendering equation, see below.
         }
         
 		<integrator methods>
+        
+        public static final Spectrum 
+            ERROR = new Spectrum(254/255.f, 20/255.f, 237/255.f), 
+            ERROR2 = new Spectrum(0/255.f, 255/255.f, 128/255.f),
+            BACKGROUND = new Spectrum();
 	}
 	
 To compute the contribution of a ray to the image, we call
@@ -3193,8 +3201,6 @@ which transforms the range [-∞, ∞] to [0, 1], with high resolution around sm
 		
 		public Spectrum integrate(Ray r) {
             <get first intersection with scene>
-			if (hitRecord == null) return new Spectrum(0.f,0.f,0.f);
-			if (hitRecord.t <= 0.f) return new Spectrum(1.f,0.f,0.f); // should not happen
 			return positionToColor(hitRecord.position());
 		}
 
@@ -3229,8 +3235,6 @@ Here is one that shows the world-space normals of the hitpoints
 		
 		public Spectrum integrate(Ray r) {
 			<get first intersection with scene>
-			if (hitRecord == null) return new Spectrum(0.f,0.f,0.f);
-			if (hitRecord.t <= 0.f) return new Spectrum(1.f,0.f,0.f);
 			return normalToColor(hitRecord.normal);
 		}
 	}
@@ -3253,8 +3257,6 @@ Here is one that shows the world-space normals of the hitpoints
 
 		public Spectrum integrate(Ray r) {
 			<get first intersection with scene>
-			if (hitRecord == null) return new Spectrum(0.f,0.f,0.f);
-			if (hitRecord.t <= 0.f) return new Spectrum(1.f,0.f,0.f);
 			return hitRecord.intersectable.id;
 		}
 	}
@@ -3284,7 +3286,7 @@ which give parameters and algorithms for 'shading'
     
     public void setMaterial(Material m) {
         this.material = m;
-        for (Intersectable i : this) i.material = m;
+        for (Intersectable i : this) i.setMaterial(m);
     }
     
     [rt/Material.java]= 
@@ -3308,9 +3310,8 @@ We can visualize the material id (if present)
 
 		public Spectrum integrate(Ray r) {
 			<get first intersection with scene>
-			if (hitRecord == null) return new Spectrum(0.f,0.f,0.f);
-			if (hitRecord.t <= 0.f || hitRecord.intersectable.material == null)
-                return new Spectrum(1.f,0.f,0.f);
+			if (hitRecord.intersectable.material == null)
+                return Integrator.ERROR2;
 			return hitRecord.intersectable.material.id;
 		}
 	}
@@ -3336,6 +3337,9 @@ Only with vastly extended capabilities.
     <material methods and data>+=
     public abstract Spectrum shade(HitRecord hitRecord, Integrator integrator, int depth);
     
+    <integrator methods>+=
+	public Spectrum integrate(Ray r, int depth) {throw new RuntimeException(this.getClass() + " does not implement integrate with depth (recursive)");}
+    
 <h5>Material Integrator</h5>
 Everything an integrator for materials has to do is call the shade method.
     [rt/integrators/MaterialIntegrator.java]= 
@@ -3352,9 +3356,8 @@ Everything an integrator for materials has to do is call the shade method.
             if (depth > <recursion depth limit>) return new Spectrum();
         
 			<get first intersection with scene>
-			if (hitRecord == null) return new Spectrum(0.f,0.f,0.f);
-            if (hitRecord.t <= 0.f || hitRecord.intersectable.material == null)
-                return new Spectrum(1.f,0.f,0.f);
+			if (hitRecord.intersectable.material == null)
+                return Integrator.ERROR2;
 			return hitRecord.intersectable.material.shade(hitRecord, this, depth+1);
 		}
         
@@ -3528,7 +3531,441 @@ a grid pattern.
         
         assertEquals(0.f, s.g, 0.0001f);
     }
+<h4>Light Transport Simulation</h4>
+Interesting and more (photo) realistic images are obtained once we add 
+a true simulation of light and light-transport to the scene.
 
+<h5>Distinction of light sources</h5>
+Some of the techniques illustrated below require that we 
+can distinguish between objects that 
+emit light into the scene from those which do not.
+We also need to be able to enumerate all of these.
+We can achieve this by simply adding a flag to intersectables and collecting 
+those intersectables with the flag set into a list of "light sources".
+    <additional intersectable methods and data>+=
+    public boolean isLight = false;
+    
+    <additional scene data>+=
+		protected IntersectableList lightList;
+		public IntersectableList getLightList() {
+            if (lightList != null) return lightList;
+            lightList = new IntersectableList();
+            addToLightList(lightList, root);
+            return lightList;
+        }
+        private void addToLightList(IntersectableList l, Intersectable i) {
+            if (i.isLight) l.add(i);
+            
+            for (Intersectable j : i) 
+                addToLightList(l, j);
+        }
+
+<h5>Direct lighting, simple shading, no sampling</h5>
+For the following simple approach to shading simulation with point lights 
+traditionally used in realtime computer graphics, it is useful to add the following 
+terminology:
+<ul>
+<li>w points away from the surface, in the direction opposite to that of the incident ray,
+i.e. it points towards the observer (eye).
+	<hit record datastructure>+=
+		public Vector3f w() {return M.normalize(M.negate(ray.direction));}
+<li>
+    [rt/intersectables/Point.java]= 
+	package rt.intersectables;
+	<common imports>
+	public class Point extends Intersectable {
+		Vector3f position;
+		public PointLight(Vector3f position) {
+			this.position = new Vector3f(position);
+		}
+		public HitRecord intersect(Ray r) {return null;}
+	}
+<li>
+    [rt/lightsources/PointLight.java]= 
+	package rt.lightsources;
+	<common imports>
+	public class PointLight extends Point {
+		Vector3f position;
+		Spectrum emission;		
+		public PointLight(Vector3f position, Spectrum emission)
+		{
+            this(position);
+            this.emission = emission;
+		}
+	}
+</ul>
+
+<h6>Lambert Diffuse + Blinn Specular</h6>
+This lighting model is completely additive.
+<img src=shade.png></img>
+The formula for a single light source thus translates to:
+    <blinn evaluate brdf>=
+	private Spectrum evaluateBlinnPhong(Vector3f n, Vector3f e, Vector3f L) {
+		Vector3f h = <unit halfway vector>;
+		return 
+			new Spectrum(kd).mult(M.clamp(L.dot(n))).add(
+			new Spectrum(ks).mult(M.powf (h.dot(n), s))
+		);
+	}
+    <unit halfway vector>=
+        M.normalize(M.add(L, e))
+        
+ks is the specular color, which is white for most real materials.
+s is the shininess parameter.
+The power deposited per area by and isotropic point light source decreases with 1/r^2,
+and the color of the light source simply multiplies with whatever is reflected.
+    <compute contribution s of lightsource l>=
+    Vector3f lightDir = M.sub(l.position, hitRecord.position());
+    float r2 = M.normalizeAndGetLength(lightDir);
+    r2 *= r2;
+    
+    Spectrum s = hitRecord.material.evaluateBRDF(hitRecord.normal, hitRecord.w(), lightDir); 
+    s.mult(l.emission);
+    s.mult(1.f/r2);
+    
+<h7>Hard Shadows</h7>
+We also add to the integrator the possibility to determine the (mutual) visibility v(a, b) 
+between two points a and b. 
+    <integrator methods>+=
+    public HitRecord visibilityIntersect(Vector3f a, Vector3f b) {
+        Vector3f d = M.sub(b, a);
+        HitRecord shadowHit = root.intersect(Ray.biased(a, d));
+        if (<hit after b>) return null;
+        return shadowHit;
+    }
+    
+    public HitRecord mutuallyVisible(Vector3f a, Vector3f b) {
+        return visibilityIntersect(a,b) == null;
+    }
+    
+    <hit after b>=
+    shadowHit.t > 1.f;
+    
+Where
+    <ray methods>+=
+    private static final float BIAS = 0.000001f;
+    public static Ray biased(Vector3f o, Vector3f d) {
+        return new Ray(M.t(hitRecord.position, d, BIAS), d);
+    }
+avoids "shadow acne".
+    <shadow test>=
+    if (!integrator.mutuallyVisible(hitRecord.position(), l.position)) 
+        continue;
+    
+    [rt/materials/Blinn.java]= 
+	package rt.materials;
+	<common imports>
+	public class Blinn extends Material {
+        float s;
+		Spectrum ks;
+		Spectrum kd;
+		public Blinn(Spectrum kd, Spectrum ks, float s) {
+			this.kd = kd; this.ks = ks; this.s = s;
+		}
+        
+		public Spectrum shade(HitRecord hitRecord, Integrator integrator, int depth) {
+            shade(kd, hitRecord, integrator, depth);
+		}
+        
+        public Spectrum shade(Spectrum kd, HitRecord hitRecord, Integrator integrator, int depth) {
+            Spectrum outgoing = new Spectrum();	
+            
+			for (Intersectable i : integrator.getLightList()) {
+                if (!(i instanceof PointLight)) continue;
+                PointLight l = (PointLight)i;
+                
+                <shadow test>
+                <compute contribution s of lightsource l>
+                
+                outgoing.add(s);
+            }
+            
+            return outgoing;
+		}
+	}
+for reasons that will become apparant in the next slide, the diffuse color is a parameter to 
+the shade method.
+
+<h6>Reflection</h6>
+As a simple variant, we can determine the diffuse color by reflecting the incoming 
+direction on the surface normal and looking up the color there.
+This gives mirror-like reflection.
+
+    <hit record methods>+=
+	public Vector3f reflectedW() { return M.reflect(normal, w()); }
+    
+    [rt/materials/Reflective.java]= 
+	package rt.materials;
+	<common imports>
+	public class Reflective extends Blinn {
+		public Reflective(Spectrum kd, Spectrum ks, float s) {
+			super(kd, ks, s);
+		}
+        public Reflective() {
+			this(new Spectrum(1), new Spectrum(0), 1.f);
+		}
+        
+        public Spectrum evaluateReflection(HitRecord hitRecord, Integrator integrator, int depth) {
+            Vector3f d = hitRecord.reflectedW();
+            <evaluate spectrum in direction d>
+        }
+        
+		public Spectrum shade(HitRecord hitRecord, Integrator integrator, int depth) {
+            Spectrum mkd = evaluateReflection(hitRecord, integrator, depth);
+            <tint diffuse and shade>
+		}
+	}
+    
+    <tint diffuse and shade>
+        mkd.mult(kd);
+        super.shade(mkd, hitRecord, integrator, depth);
+        
+    <evaluate spectrum in direction d>=
+        return integrator.integrate(Ray.biased(hitRecord.position(), d), depth);
+        
+    
+<h6>Refraction</h6>
+We can also look up the diffuse color by casting a ray through the surface of the object, 
+distroting its direction according to snell's law of refraction
+<h7>The 'Hit Plane'</h7>	
+For constructing rays that lie within the plane 
+spanned by the normal and the incident direction 
+w (call this the hit plane), it is useful to have the surface's
+tangent that lies in this plane. 
+We call this vector ipt and compute it on-demand.
+	<hit record datastructure>+=
+        private Vector3f ipt;
+        private void updateIpt() {
+            assert normal != null : "normal must be non-null";
+            assert w != null : "w must be non-null";
+            Vector3f cnw = M.cross(normal, w); 
+            ipt = cnw; ipt.cross(normal, cnw);
+            ipt.normalize();
+        }
+		
+ipt and the normal then form a cartesian coordinate system on the hit plane, on which we can now construct arbitrary points.
+	<hit record datastructure>+=
+		public Vector3f hitPlanePoint(float x, float y) {
+			updateIpt();
+			Vector3f r = M.scale(x, ipt);
+			r.add(M.scale(y, normal));
+			return r;
+		}
+		
+We can of course give these in polar coordinates.
+	<hit record datastructure>+=
+		public Vector3f hitPlanePointPolar(float ang, float len) {
+			return hitPlanePoint((float)Math.cos(ang)*len, (float)Math.sin(ang)*len);
+		}
+		public Vector3f hitPlanePointPolar(float ang) {
+			return hitPlanePointPolar(ang, 1.f);
+		}
+		
+This will be used for refraction.
+In the following image, the black arrow is the surface normal, red is cnw, green is ipt, purple is w. 
+In blue, we show a vector constructed using polar coordinates on the ipt-normal plane (hit plane).
+<img src=refex.png></img>
+
+    <unit tests>+=
+    @Test
+    public void testHitPlanePointPolar() {
+        HitRecord h = new HitRecord(
+            new Ray(new Vector3f(), new Vector3f(1.f, -1.f, 0)), 
+            0, null
+            new Vector3f(0.f, 1.f, 0)
+        ));
+        Vector3f o = h.hitPlanePointPolar(M.PI/4.f);
+        assertEquals(0.707107f, o.x, 0.0001f);
+        assertEquals(0.707107f, o.y, 0.0001f);
+        assertEquals(0, o.z, 0.0001f);
+    }
+    
+    @Test
+    public void testHitPlanePointPolar2() {
+        HitRecord h = new HitRecord(
+            new Ray(new Vector3f(), new Vector3f(1.f, 1.f, 0)), 
+            0, null
+            new Vector3f(0.f, 1.f, 0)
+        ));
+        Vector3f o = h.hitPlanePointPolar(M.PI/4.f);
+        assertEquals(0.707107f, o.x, 0.0001f);
+        assertEquals(0.707107f, o.y, 0.0001f);
+        assertEquals(0, o.z, 0.0001f);
+    }
+
+To determine the refracted angle, 
+we need to be able to tell the incident angle.
+	<hit record datastructure>+=
+	public float angleToNormal(Vector3f v) {
+		v = M.normalize(v);
+        assert normal != null : "normal must be non-null";
+		double a = (double)v.dot(normal);
+		return (float)Math.acos(a);
+	}
+Computes the angle between the given vector and the normal of the surface, 
+assuming both vectors point to the same hemisphere.
+v need not be normalized.
+    <unit tests>+=
+    @Test
+    public void testAngleToNormal() {
+        HitRecord h = new HitRecord(null, 0, null, new Vector3f(1.f, 0, 0));
+        float w = h.angleToNormal(new Vector3f(1.f, 1.f, 0));
+        assertEquals(Math.PI/4.f, w, 0.0001f);
+    }
+<h7>Refraction angle in physics</h7>
+In physics, the „amount“ of refraction of a material is characterized by its refractive index n. 
+As a parameter for our surface material here, n is the refractive index of the medium below the surface (pointing in the direction of the normal) using this material.
+Refraction is computed using the incoming angle of the light and the refractive indices on both sides of the surface according to Snell’s law:
+<img src=snell.png></img>
+
+	<define refraction>=
+	public Vector3f getRefractionDirection(HitRecord hitRecord) {
+		<determine incoming angle>
+		<determine medium and adjust angle>
+		
+        assert th1 >= 0 && th1 <= M.PI/2;
+		float a = (float)Math.sin(th1)*n1/n2;
+        
+		<check total internal reflection>
+		float th2 = (float)Math.asin(a);
+		assert th2 >= 0 && th2 <= M.PI/2;
+		<compute thout>
+
+		return hitRecord.hitPlanePointPolar(thout);
+	}
+    
+We only use the ‚direction‘ value of the ShadingSample (I have no idea what the rest is for).
+We make this method return null if there should be total internal reflection.
+	<check total internal reflection>=
+	if (a > 1) return null; 
+We also have
+	<determine incoming angle>=
+	float th1 = hitRecord.angleToNormal(hitRecord.w);
+and
+	<determine medium and adjust angle>=
+	float n1, n2;
+	boolean leaving = false;
+	if (th1 > Math.PI/2) { // leaving medium 
+		n1 = n; n2 = 1.f;
+		th1 = (float)Math.PI - th1;
+        leaving = true;
+	} else {
+		n1 = 1.f; n2 = n;
+	}
+
+determines whether we are leaving or entering the medium represented by this material’s n and sets n1 and n2 accordingly. The „outside“ medium is assumed to be air (vacuum actually).
+
+<p>
+The „outgoing angle“ thout is measured, by definition of the .hitPlanePointPolar method, relative to the +x axis in the ipt, n coordinate system in the hit-plane. This is the line surrounded by n1, v1, n2, v2 in the above picture. Since th2 is measured against the normal (or against -normal if we are entering the medium) we need to adjust accordingly 
+	<compute thout>=
+	float thout = leaving ? (M.PI/2 - th2) : (-M.PI/2 + th2);
+	
+In the following image, the black arrow is the surface normal, green is ipt (green, black form the x and y axis of the coordinate system against which thout is measured), red is cnw, purple is w (see definition of hitPlanePointPolar). 
+Blue is the refracted vector.
+<img src=refex.png></img>
+If w comes from the direction opposite to the normal, the angle of the refracted vector must be measured against the non-inverted normal.
+<img src=refex2.png></img>
+<h8>Test Refraction</h8>
+Let us refract a ray coming from -1,-1,0 on the yz plane at a surface with refractive index 2.
+    <unit tests>+=
+    @Test
+    public void testRefract() {
+        HitRecord h = new HitRecord(
+            new Ray(new Vector3f(), M.negate(
+                new Vector3f(1.f, 1.f, 0); // to camera
+            )),
+            0.f,
+            null,
+            new Vector3f(1.f, 0.f, 0)
+        );
+        Refractive m = new Refractive(2.f);
+        
+        Vector3f o = m.getRefractionDirection(h);
+        
+        assertEquals(-0.935414f, o.x, 0.0001f);
+        assertEquals(-0.353553f, o.y, 0.0001f);
+        assertEquals(o.z, 0, 0.0001f);
+    }
+    
+    @Test
+    public void testRefract2() {
+        HitRecord h = new HitRecord(
+            new Ray(new Vector3f(), M.negate(
+                new Vector3f(-1.f, 1.f, 0); // to camera
+            )),
+            0.f,
+            null,
+            new Vector3f(1.f, 0.f, 0)
+        );
+        Refractive m = new Refractive(1.3f);
+        
+        Vector3f o = m.getRefractionDirection(h);
+         
+        assertEquals(0.3937f, o.x, 0.0001f);
+        assertEquals(-0.919239f, o.y, 0.0001f);
+        assertEquals(o.z, 0, 0.0001f);
+    }
+    
+<h7>Refractive Material</h7>
+    [rt/materials/Refractive.java]= 
+	package rt.materials;
+	<common imports>
+	public class Refractive extends Reflective {
+		float n;
+		public Refractive(Spectrum kd, Spectrum ks, float s, float n) {
+			super(kd, ks, s);
+            this.n = n;
+		}
+        public Refractive(float n) {
+			this(new Spectrum(1), new Spectrum(0), 1.f, n);
+		}
+        
+        <define refraction>
+        
+        public Spectrum evaluateRefraction(HitRecord hitRecord, Integrator integrator, int depth) {
+            Vector3f d = getRefractionDirection(hitRecord);
+            <evaluate spectrum in direction d>
+        }
+        
+		public Spectrum shade(HitRecord hitRecord, Integrator integrator, int depth) {
+            Spectrum mkd = evaluateRefraction(hitRecord, integrator, depth);
+            mkd.mult(kd);
+            super.shade(mkd, hitRecord, integrator, depth);
+		}
+	}
+    
+<h6>Fresnel</h6>
+Natural transparent materials (glass, water) reflect part of the light
+and refract part of it, depending 
+on the angle of incidence (among other factors).
+Fresnel gave the following approximation for these fractions:
+<img src=fresnel.png></img>
+	<schlick fresnel factor>=
+	public float schlickF(HitRecord hitRecord) {
+		<determine incoming angle>
+		<determine medium and adjust angle>
+			
+		float f = (1-n1/n2)*(1-n1/n2) / ((1+n1/n2)*(1+n1/n2));
+		float F = f + (1-f)*M.powf(1-hitRecord.w.dot(hitRecord.normal), 5);
+        assert 0 <= F <= 1;
+        return F;
+	}
+This gives the interpolation factor in [0,1] to be used between the 
+reflected and refracted color.
+    [rt/materials/Fresnel.java]= 
+	package rt.materials;
+	<common imports>
+	public class Fresnel extends Refractive {
+		public Spectrum shade(HitRecord hitRecord, Integrator integrator, int depth) {
+            Spectrum reflected = evaluateReflection(hitRecord, integrator, depth);
+            Spectrum refracted = evaluateRefraction(hitRecord, integrator, depth);
+            float F = schlickF(hitRecord);
+            reflected.mult(F);
+            refracted.mult(1-F);
+            
+            super.shade(reflected.add(refracted), hitRecord, integrator, depth);
+		}
+	}
 <h2>Sampler</h2>
 Samplers make random samples, which are used for Monte Carlo rendering. The 
 samples always need to lie in the range [0,1]. Various versions such 
