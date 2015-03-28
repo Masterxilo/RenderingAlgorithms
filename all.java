@@ -110,8 +110,7 @@ that need to be made accessible to the renderer.
 		public SamplerFactory getSamplerFactory() {return samplerFactory;}
 		protected Intersectable root;
 		public Intersectable getIntersectable() {return root;}
-		protected LightList lightList;
-		public LightList getLightList() {return lightList;}
+        <additional scene data>
 	}
     
     <scene image capturing device>=

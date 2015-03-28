@@ -43,6 +43,11 @@ In this implementation, we work with RGB colors.
 			this.g = base+M.random()*scale;
 			this.b = base+M.random()*scale;
 		}
+        
+        public static Spectrum randomBright()
+		{
+            return random(0.5f, 0.5f);
+		}
 		
 		public Spectrum mult(float t)
 		{
@@ -100,24 +105,346 @@ In this implementation, we work with RGB colors.
         assertEquals(h.r, 1.f, 0.0001f);
         assertEquals(h.g, 0.f, 0.0001f);
     }
+    
+<h2>Integrator</h2>
+Recall that we make an integrator responsible for getting the color, that is,
+the pseudocode line
+    color = shade( hit )
+is implemented by
+    Spectrum s = integrator.integrate(r);	
+In fact, we let the integrator also execute the command 
+    hit = first intersection with scene
+via
+    <get first intersection with scene>=
+    HitRecord hitRecord = scene.getIntersectable().intersect(r);
+    
+An integrator thus takes a ray r
+(that might be starting at the camera, or some point on an object’s surface) 
+and evaluates the color of the surface it hits.
+<p>
+The name "integrator" refers to the fact that solving the (physically based)
+„rendering equation“ requires integrating over the space of all 
+light paths connecting the camera and a 'light source'.
+Various implementations of this interface may make different 
+approximations and simplifications regarding the solution
+of the rendering equation, see below.	
 
-<h2>Surface Materials</h2>
+
+	[rt/Integrator.java]= 
+	package rt;
+    <common imports>
+	public abstract class Integrator {
+        public Sampler sampler;
+        public Scene scene;
+        public Integrator(Scene scene) {
+            this.scene = scene;
+            sampler = scene.getSamplerFactory().make();
+        }
+        
+		<integrator methods>
+	}
+	
+To compute the contribution of a ray to the image, we call
+	<integrator methods>+=
+	public abstract Spectrum integrate(Ray r);
+	
+The method
+	<integrator methods>+=
+    public float[][] makePixelSamples(Sampler sampler, int n) {
+        return sampler.makeSamples(n, 2);
+    }
+Generates n two dimensional samples (i.e. an n by 2 array of floats in range 0 to 1). 
+This is required by the integrator to evaluate light paths and possibly by other parts
+of the system to approximate integrals by montecarlo sampling. This is also used to
+determine subpixel sample locations.
+The sampler might be a specialized implementation of random noise, or a dummy
+implementation without any randomness. 
+<p>
+We also provide a method to create only one 2d sample. 
+This can be used to sample surfaces of e.g. lightsources.
+    <integrator methods>+=
+    public float[] make2dSample() {
+        return makePixelSamples(sampler, 1)[0];
+    }
+
+<h3>(Integrator Factory)</h3>
+For technical reasons, we don't just create integrator objects directly.
+We use the factory pattern of object creation instead.
+	[rt/IntegratorFactory.java]= 
+	package rt;
+
+	public abstract class IntegratorFactory {
+		public abstract Integrator make(Scene scene);
+		public void prepareScene(Scene scene) {}
+	}
+	
+<h3>Debug Integrators</h3>
+The simplest integrators we can write visualize
+
+For example, they can simply return a white spectrum if the ray hits something, and black otherwise.
+Any other visualization of data associated with a hit record may be useful:
+<ul>
+<li>Intersection time and position
+<li>Hit point surface normal
+<li>Visualization of intersectable id
+</ul> 
+
+<h4>World position</h4>
+Here is an example:
+<img src=debug.png></img>
+This image was obtained by encoding the xyz world coordinates of the hitpoints into the rgb channels.
+We use the transformation
+	<infinity to one>=
+	0.5f+0.5f*(float)Math.atan(a)/((float)Math.PI*0.5f)
+which transforms the range [-∞, ∞] to [0, 1], with high resolution around small values:
+<img src=scale.png></img>
+	[rt/integrators/DebugIntegrator.java]= 
+	package rt.integrators;
+	<common imports>
+	public class DebugIntegrator extends Integrator {
+		
+		public DebugIntegrator(Scene scene) {super(scene);}
+
+		public static float posf(float a) {
+			return <infinity to one>;
+		}
+		
+		public static Spectrum positionToColor(Vector3f v) {
+			<apply posf to vector components>
+		}
+		
+		public Spectrum integrate(Ray r) {
+            <get first intersection with scene>
+			if (hitRecord == null) return new Spectrum(0.f,0.f,0.f);
+			if (hitRecord.t <= 0.f) return new Spectrum(1.f,0.f,0.f); // should not happen
+			return positionToColor(hitRecord.position());
+		}
+
+	}
+	
+	<apply posf to vector components>=
+	return new Spectrum(posf(v.x),posf(v.y),posf(v.z));
+		
+	[rt/integrators/DebugIntegratorFactory.java]= 
+	package rt.integrators;
+	import rt.*;
+	public class DebugIntegratorFactory extends IntegratorFactory {
+		public Integrator make(Scene scene) {return new DebugIntegrator(scene);}
+	}
+<h4>Normal</h4>	
+Here is one that shows the world-space normals of the hitpoints
+<img src=normals.png></img>
+	[rt/integrators/NormalDebugIntegrator.java]= 
+	package rt.integrators;
+	<common imports>
+	public class NormalDebugIntegrator extends DebugIntegrator {
+		public NormalDebugIntegrator(Scene scene) {super(scene);}
+
+		// [-1, 1] to [0, 1] linearly
+		public static float posf(float a) {
+			return (a+1)*0.5f;
+		}
+		
+		public static Spectrum normalToColor(Vector3f v) {
+			<apply posf to vector components>
+		}
+		
+		public Spectrum integrate(Ray r) {
+			<get first intersection with scene>
+			if (hitRecord == null) return new Spectrum(0.f,0.f,0.f);
+			if (hitRecord.t <= 0.f) return new Spectrum(1.f,0.f,0.f);
+			return normalToColor(hitRecord.normal);
+		}
+	}
+		
+	[rt/integrators/NormalDebugIntegratorFactory.java]= 
+	package rt.integrators;
+	import rt.*;
+	public class NormalDebugIntegratorFactory extends IntegratorFactory {
+		public Integrator make(Scene scene) {return new NormalDebugIntegrator(scene);}
+	}
+<h4>Intersectable Id</h4>
+    <additional intersectable methods and data>+=
+    public Spectrum id = Spectrum.randomBright();
+    
+    [rt/integrators/IntersectableIdDebugIntegrator.java]= 
+	package rt.integrators;
+	<common imports>
+	public class IntersectableIdDebugIntegrator extends DebugIntegrator {
+		public IntersectableIdDebugIntegrator(Scene scene) {super(scene);}
+
+		public Spectrum integrate(Ray r) {
+			<get first intersection with scene>
+			if (hitRecord == null) return new Spectrum(0.f,0.f,0.f);
+			if (hitRecord.t <= 0.f) return new Spectrum(1.f,0.f,0.f);
+			return hitRecord.intersectable.id;
+		}
+	}
+		
+	[rt/integrators/IntersectableIdDebugIntegratorFactory.java]= 
+	package rt.integrators;
+	import rt.*;
+	public class IntersectableIdDebugIntegratorFactory extends IntegratorFactory {
+		public Integrator make(Scene scene) {return new IntersectableIdDebugIntegrator(scene);}
+	}
+    
+<h3>Material Based Integrators</h3>
+All of the more complex integrators give more complex color output derived from 
+data and surface properties assigned to the objects and dependent on other objects in the scene.
+They use secondary rays starting at the first intersection point to 
+obtain information about the environment.
+
+<h4>Surface Materials</h4>
 Recall that our hit reccord only records the Intersectable that was hit so far.
 To create nice images with possibly repeated objects sharing their appearance,
 objects of the scenes are assigned so called materials 
 which give parameters and algorithms for 'shading'
 (that is, computing the color of) the corresponding surface.
+
     <additional intersectable methods and data>+=
-    public Material material;
+    public Material material = null;
     
     [rt/Material.java]= 
 	package rt;
 	<common imports>
-	
-	public interface Material {
-        <material methods>
+	public class Material {
+        <material methods and data>
     }
     
+<h5>Material Id Debug Integrator</h5>
+This assignment immediately gives raise to an alternative to the intersectable id integrator:
+We can visualize the material id (if present)
+    <material methods and data>+=
+    public Spectrum id = Spectrum.randomBright();
+    
+    [rt/integrators/MaterialIdDebugIntegrator.java]= 
+	package rt.integrators;
+	<common imports>
+	public class MaterialIdDebugIntegrator extends DebugIntegrator {
+		public MaterialIdDebugIntegrator(Scene scene) {super(scene);}
+
+		public Spectrum integrate(Ray r) {
+			<get first intersection with scene>
+			if (hitRecord == null) return new Spectrum(0.f,0.f,0.f);
+			if (hitRecord.t <= 0.f || hitRecord.intersectable.material == null)
+                return new Spectrum(1.f,0.f,0.f);
+			return hitRecord.intersectable.material.id;
+		}
+	}
+		
+	[rt/integrators/MaterialIdDebugIntegratorFactory.java]= 
+	package rt.integrators;
+	import rt.*;
+	public class MaterialIdDebugIntegratorFactory extends IntegratorFactory {
+		public Integrator make(Scene scene) {return new MaterialIdDebugIntegrator(scene);}
+	}
+
+<h4>Material Shading</h4>
+A material's job is to give a color for a given hitRecord. 
+It may also refer back to the Integrator to cast more rays.
+If you happen to be familiar with (realtime) computer graphics, this 
+is basically supposed to do what a pixel shader does. 
+Only with vastly extended capabilities.
+    <material methods and data>+=
+    public abstract Spectrum shade(HitRecord hitRecord, Integrator integrator);
+    
+<h5>Material Integrator</h5>
+Everything an integrator for materials has to do is call the shade method.
+    [rt/integrators/MaterialIntegrator.java]= 
+	package rt.integrators;
+	<common imports>
+	public class MaterialIntegrator extends Integrator {
+		public MaterialIntegrator(Scene scene) {super(scene);}
+
+		public Spectrum integrate(Ray r) {
+			<get first intersection with scene>
+			if (hitRecord == null) return new Spectrum(0.f,0.f,0.f);
+            if (hitRecord.t <= 0.f || hitRecord.intersectable.material == null)
+                return new Spectrum(1.f,0.f,0.f);
+			return hitRecord.intersectable.material.shade(hitRecord, this);
+		}
+	}
+		
+	[rt/integrators/MaterialIntegratorFactory.java]= 
+	package rt.integrators;
+	import rt.*;
+	public class MaterialIntegratorFactory extends IntegratorFactory {
+		public Integrator make(Scene scene) {return new MaterialIntegrator(scene);}
+	}
+
+<h5>Debug Materials</h5>
+We could for example outsource what the debug integrators do to a material shader:
+<h4>Position Debug</h4>
+Same result as DebugIntegrator.
+	[rt/materials/DebugMaterial.java]= 
+	package rt.materials;
+	<common imports>
+	public class DebugMaterial extends Material {
+		public Spectrum shade(HitRecord hitRecord, Integrator integrator) {
+			return DebugIntegrator.positionToColor(hitRecord.position);
+		}
+	}
+<h4>Normal Debug</h4>
+Same result as NormalDebugIntegrator.
+	[rt/materials/NormalDebugMaterial.java]= 
+	package rt.materials;
+	<common imports>
+	public class NormalDebugMaterial extends Material {
+		public Spectrum shade(HitRecord hitRecord, Integrator integrator) {
+			return NormalDebugIntegrator.normalToColor(hitRecord.normal);
+		}
+	}
+<h4>XYZGrid</h4>
+Instead of converting 3d positions to color continuously, we can modulo them to get 
+a grid pattern.
+    <math utilities>+=
+    public static float modf(float x, float d) {
+        float y = x % d;
+        if (y < 0) y = d + y;
+        return y;
+    }
+    
+	[rt/materials/XYZGrid.java]= 
+	package rt.materials;
+	<common imports>
+	public class XYZGrid extends Material {
+		Spectrum lineColor, backgroundColor;
+		Vector3f offset, lineThickness, backgroundRep;
+
+		public XYZGrid(
+				Spectrum lineColor, 
+                Vector3f lineThickness,
+				Spectrum backgroundColor, 
+				Vector3f backgroundRep,
+                Vector3f offset) {
+			this.backgroundColor = new Spectrum(backgroundColor);
+			this.lineColor = new Spectrum(lineColor);
+			this.offset = new Vector3f(offset);
+            this.backgroundRep = new Vector3f(backgroundRep);
+			this.lineThickness = new Vector3f(lineThickness);
+		}
+		
+		private boolean c(float x, float p, float d) {
+			return M.modf(x, d) < p;
+		}
+        
+		public Spectrum shade(HitRecord hitRecord, Integrator integrator) {
+			if (c(hitRecord.position.x + offset.x, lineThickness.x, backgroundRep.x) 
+             || c(hitRecord.position.y + offset.y, lineThickness.y, backgroundRep.y) 
+             || c(hitRecord.position.z + offset.z, lineThickness.z, backgroundRep.z))
+				return new Spectrum(lineColor);
+			return new Spectrum(backgroundColor);
+		}
+
+	}
+    
+<h4>Light Sources</h4>
+Interesting images are obtained
+    <additional scene data>+=
+		protected IntersectableList lightList;
+		public IntersectableList getLightList() {
+            return lightList;
+        }
 
 <h3>Incident Ray/To-Viewer/Eye/Observer/Out Direction w</h3>
 The direction towards the origin
@@ -158,7 +485,7 @@ In the unlikely case that the normal and this vector happened to point in the sa
 Materials implement functionality for shading surfaces using their BRDFs.
 
 Light sources are implemented using materials that return an emission term.
-	<material methods>+=
+	<material methods and data>+=
 		public Spectrum evaluateEmission(HitRecord hitRecord, Vector3f wOut);
 evaluates emission for outgoing direction. This method is typically called 
 by an integrator when the integrator obtained the outgoing direction of
@@ -189,7 +516,7 @@ the emission by sampling a point on a light source.
 		 */
 		public boolean hasSpecularReflection();
 		
-        <material methods>+=
+        <material methods and data>+=
         <shading sample>
 		/**
 		 * Evaluate specular reflection. This method is typically called by a recursive
@@ -266,7 +593,7 @@ L is also called the incident direction.
 	package rt.materials;
 	<common imports>
 
-	public class Blinn implements Material {
+	public class Blinn extends Material {
 		float s;
 		Spectrum ks;
 		Spectrum kd;
@@ -324,7 +651,7 @@ The reflection is easy to do (we only use the w component of ShadingSample).
 	[rt/materials/Reflective.java]= 
 	package rt.materials;
 	<common imports>
-	public class Reflective implements Material 
+	public class Reflective extends Material 
 	{
 		<define reflection>
 			
@@ -553,80 +880,8 @@ Let us refract a ray coming from -1,-1,0 on the yz plane at a surface with refra
         assertEquals(o.z, 0, 0.0001f);
     }
     
-    
 <h3>Materials with procedural colors</h3>	
-<h4>Position Debug</h4>
-Same result as debug integrator.
-	[rt/materials/DebugMaterial.java]= 
-	package rt.materials;
-	<common imports>
-	public class DebugMaterial extends Diffuse {
-		public Spectrum evaluateBRDF(HitRecord hitRecord, Vector3f wOut, Vector3f wIn) {
-			return DebugIntegrator.positionToColor(hitRecord.position);
-		}
-	}
-<h4>Normal Debug</h4>
-Same result as normal debug integrator.
-	[rt/materials/NormalDebugMaterial.java]= 
-	package rt.materials;
-	<common imports>
-	public class NormalDebugMaterial extends Diffuse {
-		public Spectrum evaluateBRDF(HitRecord hitRecord, Vector3f wOut, Vector3f wIn) {
-			return NormalDebugIntegrator.normalToColor(hitRecord.normal);
-		}
-	}
-<h4>XYZGrid</h4>
-All sizes are in (unscaled) world coordinates.
-	[rt/materials/XYZGrid.java]= 
-	package rt.materials;
-	<common imports>
-	public class XYZGrid extends Diffuse {
 
-		float s, lineThickness;
-		Spectrum lineColor;
-		/** offset shift */
-		Vector3f offset;
-		float tileSize;
-
-		public XYZGrid(
-				Spectrum lineColor, 
-				Spectrum kd, 
-				float lineThickness, // ?
-				Vector3f offset, // ?
-				float tileSize) {
-			super(kd);
-			this.tileSize = tileSize;
-			this.offset = new Vector3f(offset);
-			this.lineColor = lineColor;
-			this.lineThickness = lineThickness;
-			s = offset.y;
-		}
-		
-		public  XYZGrid(Spectrum lineColor, 
-			Spectrum kd, 
-			float lineThickness,
-			Vector3f offset) {
-			this(lineColor, kd, lineThickness, offset, 0.125f);
-		}
-		
-		private boolean c(float p) {
-			return (double)(Math.abs(p) + lineThickness/2 + s/3 ) % (double)s < (double)lineThickness;
-		}
-		
-		/**
-		 * Returns diffuse BRDF value, that is, a constant.
-		 * 
-		 *  @param wOut outgoing direction, by convention towards camera
-		 *  @param wIn incident direction, by convention towards light
-		 *  @param hitRecord hit record to be used
-		 */
-		public Spectrum evaluateBRDF(HitRecord hitRecord, Vector3f wOut, Vector3f wIn) {
-			if (c(hitRecord.position.x) || c(hitRecord.position.y) || c(hitRecord.position.z))
-				return new Spectrum(lineColor);
-			return new Spectrum(kd);
-		}
-
-	}
 	
 <h3>Shading Sample</h3>
 A "shading sample" is a brdf (bidirectional reflectance distribution function) value, an emission value,
@@ -669,143 +924,7 @@ the sample.
 	}	
     
 
-<h2>Integrator</h2>
 
-
-An integrator takes a ray
-(that might be starting at the camera, or some point on an object’s surface) 
-and evaluates the color of the surface it hits.
-
-The name "integrator" refers to the fact that solving the 
-„rendering equation“ requires integrating over the space of all 
-light paths connecting the camera and a light source.
-Various implementations of this interface may make different 
-approximations and simplifications regarding the solution
-of the rendering equation.	
-	[rt/Integrator.java]= 
-	package rt;
-    <common imports>
-	public abstract class Integrator {
-        public Sampler sampler;
-        public Scene scene;
-        public Integrator(Scene scene) {
-            this.scene = scene;
-            sampler = scene.getSamplerFactory().make();
-        }
-        
-		<integrator methods>
-	}
-	
-To compute the contribution of a ray to the image, we call
-	<integrator methods>+=
-	public abstract Spectrum integrate(Ray r);
-	
-The method
-	<integrator methods>+=
-    public float[][] makePixelSamples(Sampler sampler, int n) {
-        return sampler.makeSamples(n, 2);
-    }
-Generates n two dimensional samples (i.e. an n by 2 array of floats in range 0 to 1). This is required by the integrator to evaluate light paths and possibly by other parts of the system to approximate integrals by montecarlo sampling. This is also used to determine subpixel sample locations.
-The sampler might be a specialized implementation of random noise, or a dummy implementation without any randomness. 
-
-We also provide a method to create only one 2d sample. 
-This can be used to sample surfaces of e.g. lightsources.
-    <integrator methods>+=
-    public float[] make2dSample() {
-        return makePixelSamples(sampler, 1)[0];
-    }
-
-<h3>(Integrator Factory)</h3>
-For technical reasons, we don't just create integrator objects directly.
-We use the factory pattern of object creation instead.
-	[rt/IntegratorFactory.java]= 
-	package rt;
-
-	public abstract class IntegratorFactory {
-		public abstract Integrator make(Scene scene);
-		public void prepareScene(Scene scene) {}
-	}
-	
-<h3>Specific Integrators</h3>
-<h4>Debug Integrators</h4>
-Used for debugging purposes.
-For example, they can simply return a white spectrum if the ray hits something, and black otherwise.
-Any other visualization of data associated with a hit record may be useful. 
-
-Here is an example:
-<img src=debug.png></img>
-This image was obtained by encoding the xyz world coordinates of the hitpoints into the rgb channels.
-We use the transformation
-	<infinity to one>=
-	0.5f+0.5f*(float)Math.atan(a)/((float)Math.PI*0.5f)
-which transforms the range [-∞, ∞] to [0, 1], with high resolution around small values:
-<img src=scale.png></img>
-	[rt/integrators/DebugIntegrator.java]= 
-	package rt.integrators;
-	<common imports>
-	public class DebugIntegrator extends Integrator {
-		
-		public DebugIntegrator(Scene scene) {super(scene);}
-
-		public static float posf(float a) {
-			return <infinity to one>;
-		}
-		
-		public static Spectrum positionToColor(Vector3f v) {
-			<apply posf to vector components>
-		}
-		
-		public Spectrum integrate(Ray r) {
-			HitRecord hitRecord = scene.getIntersectable().intersect(r);
-			if (hitRecord == null) return new Spectrum(0.f,0.f,0.f);
-			if (hitRecord.t <= 0.f) return new Spectrum(1.f,0.f,0.f); // should not happen
-			return positionToColor(hitRecord.position);
-		}
-
-	}
-	
-	<apply posf to vector components>=
-	return new Spectrum(posf(v.x),posf(v.y),posf(v.z));
-		
-	[rt/integrators/DebugIntegratorFactory.java]= 
-	package rt.integrators;
-	import rt.*;
-	public class DebugIntegratorFactory extends IntegratorFactory {
-		public Integrator make(Scene scene) {return new DebugIntegrator(scene);}
-	}
-		
-Here is one that shows the world-space normals of the hitpoints
-<img src=normals.png></img>
-	[rt/integrators/NormalDebugIntegrator.java]= 
-	package rt.integrators;
-	<common imports>
-	public class NormalDebugIntegrator extends DebugIntegrator {
-		public NormalDebugIntegrator(Scene scene) {super(scene);}
-
-		// [-1, 1] to [0, 1] linearly
-		public static float posf(float a) {
-			return (a+1)*0.5f;
-		}
-		
-		public static Spectrum normalToColor(Vector3f v) {
-			<apply posf to vector components>
-		}
-		
-		public Spectrum integrate(Ray r) {
-			HitRecord hitRecord = scene.getIntersectable().intersect(r);
-			if (hitRecord == null) return new Spectrum(0.f,0.f,0.f);
-			if (hitRecord.t <= 0.f) return new Spectrum(1.f,0.f,0.f);
-			return normalToColor(hitRecord.normal);
-		}
-	}
-		
-	[rt/integrators/NormalDebugIntegratorFactory.java]= 
-	package rt.integrators;
-	import rt.*;
-	public class NormalDebugIntegratorFactory extends IntegratorFactory {
-		public Integrator make(Scene scene) {return new NormalDebugIntegrator(scene);}
-	}
-	
 This shows the hitpoint uv values.
 <img src=uvs.png></img>
 	[rt/integrators/UVDebugIntegrator.java]= 
@@ -1102,7 +1221,7 @@ Implements a point light using a PointLightMaterial.
 	package rt.materials;
 
 	<common imports>
-	public class PointLightMaterial implements Material {
+	public class PointLightMaterial extends Material {
 
 		Spectrum emission;
 		Random rand;
@@ -1173,7 +1292,7 @@ Implements an area light using an AreaLightMaterial.
 	package rt.materials;
 
 	<common imports>
-	public class AreaLightMaterial implements Material {
+	public class AreaLightMaterial extends Material {
 
 		Spectrum emission;
 		Random rand;
