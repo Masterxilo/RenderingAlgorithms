@@ -648,6 +648,8 @@ The most straightforward way to implement this is of course by storing the objec
 		public IntersectableList add(Intersectable... i) {list.addAll(Arrays.asList(i)); return this;} 
         public IntersectableList add(IntersectableList i) {add(i.list); return this;} 
 		public Iterator<Intersectable> iterator() {return list.iterator();}
+        
+        public boolean contains(Intersectable i) {return list.contains(i);}
 	}
 	
 <h3>CSG</h3>
@@ -811,6 +813,9 @@ left (A) and right (B) child.
 		this.right = right;
 		this.operation = operation;
 	}
+    
+    @Override
+    public Iterator<Intersectable> iterator() {return Arrays.<Intersectable>asList(left, right).iterator();}
 	
 For convenience, we provide the following methods to construct such nodes
 	<static csg node constructors>=
@@ -1190,17 +1195,22 @@ The method thus boils down to
 		
 		public ArrayList<Float> getFiniteIntersectionTimes(Ray r) {
 			<rename ray variables>
-			float D = 4*M.sqr(dx*ox + dy*oy + dz*oz) - 4*(dx*dx + dy*dy + dz*dz)*(ox*ox + oy*oy + oz*oz);
+			float D = 4*M.sqr(dx*ox + dy*oy + dz*oz) - 
+       4*(dx*dx + dy*dy + dz*dz)*(-1 + ox*ox + oy*oy + oz*oz);
 			if (D < 0) return null;
+            D = M.sqrtf(D);
 			
 			ArrayList<Float> l = new ArrayList<Float>(2);
 			
 			l.add(
-				-((dx*ox + dy*oy + dz*oz + M.sqrtf(D)/2)/(dx*dx + dy*dy + dz*dz))
+				-((dx*ox + dy*oy + dz*oz + 
+      D/2)/(dx*dx + dy*dy + dz*dz))
 			);
 			
 			l.add(
-				(-2*dx*ox - 2*dy*oy - 2*dz*oz + M.sqrtf(D))/(2*(dx*dx + dy*dy + dz*dz))
+				(-2*dx*ox - 2*dy*oy - 2*dz*oz + 
+     D)/
+    (2*(dx*dx + dy*dy + dz*dz))
 			);
 			return l;
 		}
@@ -1763,7 +1773,10 @@ So probably smax does not (always) work (?).
 
 		DFOperationType o;
 		DistanceField a, b;
-		
+            
+        @Override
+        public Iterator<Intersectable> iterator() {return Arrays.<Intersectable>asList(a, b).iterator();}
+            
 		public float f(Vector3f p) {
 			switch(o) {
 				case ADD:
@@ -2469,7 +2482,7 @@ Just advance by the six vertices we created.
     public void testMeshUnitCylinder() {
         float f = 1/M.sqrtf(2);
         MeshUnitCylinder p = new MeshUnitCylinder(8);
-        HitRecord r = p.intersect(new Ray(new Vector3f(1,f,0.5f), new Vector3f(-1,0,0)));
+        HitRecord r = p.intersect(new Ray(new Vector3f(1, f, 0.5f), new Vector3f(-1,0,0)));
         assertTrue(r != null);
         assertEquals(1-f, r.t, 0.001f);
         System.out.println(r.position());
@@ -2837,6 +2850,9 @@ A node then either stores two child nodes or a list of primitives when it is a l
         boolean isLeaf() {
             return primitives != null && below == null && above == null;
         }
+        @Override
+        public Iterator<Intersectable> iterator() {return Arrays.<Intersectable>asList(below, above).iterator();}
+          
         
 It stores the axis aligned bounding box that intersects all the objects it contains
     <bsp node attributes>+=
@@ -3577,8 +3593,8 @@ i.e. it points towards the observer (eye).
 	package rt.intersectables;
 	<common imports>
 	public class Point extends Intersectable {
-		Vector3f position;
-		public PointLight(Vector3f position) {
+		public Vector3f position;
+		public Point(Vector3f position) {
 			this.position = new Vector3f(position);
 		}
 		public HitRecord intersect(Ray r) {return null;}
@@ -3588,12 +3604,12 @@ i.e. it points towards the observer (eye).
 	package rt.lightsources;
 	<common imports>
 	public class PointLight extends Point {
-		Vector3f position;
-		Spectrum emission;		
+		public Spectrum emission;		
 		public PointLight(Vector3f position, Spectrum emission)
 		{
-            this(position);
+            super(position);
             this.emission = emission;
+            this.isLight = true;
 		}
 	}
 </ul>
@@ -3633,7 +3649,7 @@ between two points a and b.
     public HitRecord visibilityIntersect(Vector3f a, Vector3f b) {
         Vector3f d = M.sub(b, a);
         HitRecord shadowHit = scene.getIntersectable().intersect(Ray.biased(a, d));
-        if (<hit after b>) return null;
+        if (shadowHit == null || <hit after b>) return null;
         return shadowHit;
     }
     
@@ -3667,7 +3683,7 @@ avoids "shadow acne".
 		}
         
 		public Spectrum shade(HitRecord hitRecord, Integrator integrator, int depth) {
-            shade(kd, hitRecord, integrator, depth);
+            return shade(kd, hitRecord, integrator, depth);
 		}
         
         <blinn evaluate brdf>
@@ -3675,7 +3691,7 @@ avoids "shadow acne".
         public Spectrum shade(Spectrum kd, HitRecord hitRecord, Integrator integrator, int depth) {
             Spectrum outgoing = new Spectrum();	
             
-			for (Intersectable i : scene.getLightList()) {
+			for (Intersectable i : integrator.scene.getLightList()) {
                 if (!(i instanceof PointLight)) continue;
                 PointLight l = (PointLight)i;
                 
@@ -3690,6 +3706,55 @@ avoids "shadow acne".
 	}
 for reasons that will become apparant in the next slide, the diffuse color is a parameter to 
 the shade method.
+
+<h7>Blinn sample scene</h7>
+Simple scene using a Blinn material.	
+<img src="output/rt.testscenes.BlinnTest 1SPP.png"></img>
+	[rt/testscenes/BlinnTest.java]= 
+	package rt.testscenes;
+	<common imports>
+	public class BlinnTest extends PinholeCameraScene {
+        public PointLight pl1, pl2;
+		public BlinnTest()
+		{
+			setDimensions(512,512);
+			setSPP(1);
+			Vector3f eye = new Vector3f(0.f, 0.f, 3.f);
+			Vector3f lookAt = new Vector3f(0.f, 0.f, 0.f);
+			setCamera(eye, lookAt, <up vector>);
+			
+			// Specify which integrator and sampler to use
+			integratorFactory = new MaterialIntegratorFactory();
+			samplerFactory = new OneSamplerFactory();
+
+			// Ground plane
+			CSGPlane groundPlane = new CSGPlane(new Vector3f(0.f, 1.f, 0.f), 1.f);
+			groundPlane.setMaterial(
+                new Blinn(new Spectrum(1.f), new Spectrum(.4f, .4f, .4f), 50.f)
+            );
+			// Sphere with Blinn material
+			CSGSphere sphere = new CSGSphere();
+			sphere.setMaterial(
+                new Blinn(new Spectrum(.8f, 0.f, 0.f), new Spectrum(.4f, .4f, .4f), 50.f)
+            );
+			
+            // Light sources
+			pl1 = new PointLight(new Vector3f(.5f, .5f, 2.f), new Spectrum(1.f, 1.f, 1.f));
+			pl2 = new PointLight(new Vector3f(-.75f, .75f, 2.f), new Spectrum(1.f, 1.f, 1.f));
+            
+			root = new IntersectableList().add(groundPlane, sphere, pl1, pl2);
+		}
+	}
+	<beautiful scenes>+=
+	new BlinnTest(),
+    
+    <unit tests>+=
+    @Test
+    public void testBlinnTest() {
+        BlinnTest b = new BlinnTest();
+        assertTrue(b.getLightList().contains(b.pl1));
+        assertTrue(b.getLightList().contains(b.pl2));
+    }
 
 <h6>Reflection</h6>
 As a simple variant, we can determine the diffuse color by reflecting the incoming 
@@ -3723,7 +3788,7 @@ This gives mirror-like reflection.
     
     <tint diffuse and shade>=
         mkd.mult(kd);
-        super.shade(mkd, hitRecord, integrator, depth);
+        return super.shade(mkd, hitRecord, integrator, depth);
         
     <evaluate spectrum in direction d>=
         return integrator.integrate(Ray.biased(hitRecord.position(), d), depth);
@@ -3777,7 +3842,7 @@ In blue, we show a vector constructed using polar coordinates on the ipt-normal 
             new Ray(new Vector3f(), new Vector3f(1.f, -1.f, 0)), 
             0, null,
             new Vector3f(0.f, 1.f, 0)
-        ));
+        );
         Vector3f o = h.hitPlanePointPolar(M.PI/4.f);
         assertEquals(0.707107f, o.x, 0.0001f);
         assertEquals(0.707107f, o.y, 0.0001f);
@@ -3790,7 +3855,7 @@ In blue, we show a vector constructed using polar coordinates on the ipt-normal 
             new Ray(new Vector3f(), new Vector3f(1.f, 1.f, 0)), 
             0, null,
             new Vector3f(0.f, 1.f, 0)
-        ));
+        );
         Vector3f o = h.hitPlanePointPolar(M.PI/4.f);
         assertEquals(0.707107f, o.x, 0.0001f);
         assertEquals(0.707107f, o.y, 0.0001f);
@@ -3933,8 +3998,7 @@ Let us refract a ray coming from -1,-1,0 on the yz plane at a surface with refra
         
 		public Spectrum shade(HitRecord hitRecord, Integrator integrator, int depth) {
             Spectrum mkd = evaluateRefraction(hitRecord, integrator, depth);
-            mkd.mult(kd);
-            super.shade(mkd, hitRecord, integrator, depth);
+            <tint diffuse and shade>
 		}
 	}
     
@@ -3969,7 +4033,7 @@ reflected and refracted color.
             reflected.mult(F);
             refracted.mult(1-F);
             
-            super.shade(reflected.add(refracted), hitRecord, integrator, depth);
+            return super.shade(reflected.add(refracted), hitRecord, integrator, depth);
 		}
 	}
     

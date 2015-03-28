@@ -72,46 +72,7 @@
 	<beautiful scenes>+=
 	new InstancingTeapots(),
 	
-<h4>Blinn</h4>
-Simple scene using a Blinn material.	
-<img src="output/rt.testscenes.BlinnTest 1SPP.png"></img>
-	[rt/testscenes/BlinnTest.java]= 
-	package rt.testscenes;
-	<common imports>
-	public class BlinnTest extends PinholeCameraScene {
 
-		public BlinnTest()
-		{
-			setDimensions(512,512);
-			setSPP(1);
-			Vector3f eye = new Vector3f(0.f, 0.f, 3.f);
-			Vector3f lookAt = new Vector3f(0.f, 0.f, 0.f);
-			setCamera(eye, lookAt, <up vector>);
-			
-			// Specify which integrator and sampler to use
-			integratorFactory = new PointLightIntegratorFactory();
-			samplerFactory = new OneSamplerFactory();
-
-			// Ground plane
-			CSGPlane groundPlane = new CSGPlane(new Vector3f(0.f, 1.f, 0.f), 1.f);
-			
-			// Sphere with Blinn material
-			CSGSphere sphere = new CSGSphere();
-			sphere.material = new Blinn(new Spectrum(.8f, 0.f, 0.f), new Spectrum(.4f, .4f, .4f), 50.f);
-			
-			root = new IntersectableList().add(groundPlane, sphere);
-			
-			// Light sources
-			LightGeometry pl1 = new PointLight(new Vector3f(.5f, .5f, 2.f), new Spectrum(1.f, 1.f, 1.f));
-			LightGeometry pl2 = new PointLight(new Vector3f(-.75f, .75f, 2.f), new Spectrum(1.f, 1.f, 1.f));
-			lightList = new LightList();
-			lightList.add(pl1);
-			lightList.add(pl2);
-		}
-	}
-	<beautiful scenes>+=
-	new BlinnTest(),
-   
     
 <h4>AreaLightScene</h4>
 <img src="output/rt.testscenes.AreaLightScene 32SPP.png"></img>
