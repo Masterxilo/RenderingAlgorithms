@@ -10,10 +10,8 @@ The technique is capable of producing a very high degree of visual realism [...]
 
 <h2>This is a literate program</h2>
 This is written in a "literate programming" style and completely contained in this single file.
-We write an indented
-	<multi word identifier>=
-or
-	<multi word identifier>+=
+We write an indented &lt;multi word identifier&gt;=
+or  &lt;multi word identifier&gt;+=
 to start or expand a section of code that can be inserted elsewhere by referring to <multi word identifier> as in
 	<multi word identifier>
 Furthermore, [folder/filename.ext]= marks the start of a section that will be written to a file once all abbreviations are fully expanded.
@@ -112,6 +110,7 @@ that need to be made accessible to the renderer.
 		public Intersectable getIntersectable() {return root;}
         <additional scene data>
 	}
+    <additional scene data>=
     
     <scene image capturing device>=
     	protected String outputFilename;
@@ -181,7 +180,7 @@ We make sure that class names do not clash in our raytracer, so we can always im
 	import rt.*;
 	import rt.materials.*;
 	import rt.Material.*;
-	import rt.lightsources.*;
+	//import rt.lightsources.*;
 	import rt.samplers.*;
 	import rt.tonemappers.*;
 	import rt.intersectables.*;
@@ -191,6 +190,7 @@ We make sure that class names do not clash in our raytracer, so we can always im
 	import rt.basicscenes.*;
 	import rt.testscenes.*;
 	import java.util.*;
+    import java.util.Collections;
 	import java.io.*;
 	import rt.intersectables.CSGSolid.*;
 	import rt.intersectables.CSGNode.*;
@@ -205,6 +205,8 @@ We will render the following (instances of) scenes:
 	<rendered scenes>=
         <test scenes>
         <beautiful scenes>
+    <beautiful scenes>=
+    
 that are defined along the way.
 	[rt/Main.java]= 
 	package rt;
@@ -587,9 +589,18 @@ HitRecord intersect(Ray r) determines whether r hits this surface and if so
 constructs a corresponding hit record, otherwise returns null.
 	[rt/Intersectable.java]= 
 	package rt;
-	public abstract class Intersectable extends HasAABB {
+    <common imports>
+	public abstract class Intersectable implements Iterable<Intersectable> {
 		public abstract HitRecord intersect(Ray r);
         <additional intersectable methods and data>
+        
+        public Iterator<Intersectable> iterator() {return Collections.emptyIterator();}
+        
+        public int size() {
+            int n = 0;
+            for (Intersectable b : this) n++;
+            return n;
+        }
 	}
     
 <h4>Aggregate</h4>
@@ -614,19 +625,11 @@ objects.
 	[rt/intersectables/Aggregate.java]= 
 	package rt.intersectables;
 	<common imports>
-	public abstract class Aggregate extends Intersectable implements Iterable<Intersectable> {
+	public abstract class Aggregate extends Intersectable {
 
 		public HitRecord intersect(Ray r) {
 			<intersect all objects in group determine closest hit>
 		}
-		
-		public abstract Iterator<Intersectable> iterator();
-        
-        public int size() {
-            int n = 0;
-            for (Intersectable b : this) n++;
-            return n;
-        }
         
         <additional aggregate methods>
 	}
@@ -638,8 +641,8 @@ The most straightforward way to implement this is of course by storing the objec
 	public class IntersectableList extends Aggregate {
 		public LinkedList<Intersectable> list;
 		public IntersectableList() {list = new LinkedList<Intersectable>();}
-		public IntersectableList(Collection<Intersectable> i) {add(i);}
-		public IntersectableList(Intersectable... i) {add(i);}
+		public IntersectableList(Collection<Intersectable> i) {this(); add(i);}
+		public IntersectableList(Intersectable... i) {this(); add(i);}
 		public IntersectableList add(Collection<Intersectable> i) {list.addAll(i); return this;}
 		public IntersectableList add(Intersectable... i) {list.addAll(Arrays.asList(i)); return this;} 
 		public Iterator<Intersectable> iterator() {return list.iterator();}
@@ -746,7 +749,7 @@ It does pretty much the same as Instance does for any Intersectables in general.
 	<common imports>
 	public class CSGInstance extends CSGSolid {
 		CSGSolid o;
-		Matrix4f t, ti, tit;
+        <instance transformations>
 		
 		public CSGInstance(CSGSolid o, Matrix4f t) {
 			<establish instance parameters>
@@ -974,7 +977,7 @@ function f.
 	<csg leaf volume definition>=
 	public abstract float f(Vector3f p);
     
-    public boolean isWithinVolume(Vector3f p) {return f(ray.origin) <= 0;}
+    public boolean isWithinVolume(Vector3f p) {return f(p) <= 0;}
     
 The surface of a CSG volume is defined as the set of all points q with f(q) = 0.
 The normal at a point on the surface is defined as normalize(∇f(q)).
@@ -1005,6 +1008,7 @@ HitRecords and sorting them.
         <intersection times empty test>
         ArrayList<IntervalBoundary> boundaries = new ArrayList<IntervalBoundary>(intersectionTimes.size());
         for (Float t : intersectionTimes) {
+            Vector3f q = ray.t(t);
             boundaries.add(new IntervalBoundary(
                 t,
                 new HitRecord(
@@ -1137,10 +1141,10 @@ The method thus boils down to
 			return <plane definition>;
 		}
 		
-		public ArrayList<Float> getFiniteIntersectionTimes(Ray ray) {
-			if (ray.direction.z == 0) return null;
+		public ArrayList<Float> getFiniteIntersectionTimes(Ray r) {
+			if (r.direction.z == 0) return null;
             ArrayList<Float> l = new ArrayList<Float>(1);
-			l.add(-(ray.origin.z/ray.direction.z));
+			l.add(-(r.origin.z/r.direction.z));
 			return l;
 		}
 	}
@@ -1168,7 +1172,7 @@ The method thus boils down to
 
 <h5>UnitSphere</h5>
     <sphere definition>=
-	p.x*p.x + p.y*p.y + p.z*p.z
+	p.x*p.x + p.y*p.y + p.z*p.z - 1
 
     [rt/intersectables/CSGUnitSphere.java]= 
 	package rt.intersectables;
@@ -1182,7 +1186,7 @@ The method thus boils down to
 			return <sphere definition>;
 		}
 		
-		public ArrayList<Float> getFiniteIntersectionTimes(Ray ray) {
+		public ArrayList<Float> getFiniteIntersectionTimes(Ray r) {
 			<rename ray variables>
 			float D = 4*M.sqr(dx*ox + dy*oy + dz*oz) - 4*(dx*dx + dy*dy + dz*dz)*(ox*ox + oy*oy + oz*oz);
 			if (D < 0) return null;
@@ -1199,7 +1203,18 @@ The method thus boils down to
 			return l;
 		}
 	}
-    
+<img src="output/rt.testscenes.UnitSphereTest 1SPP.png"></img>
+	[rt/testscenes/UnitSphereTest.java]= 
+	package rt.testscenes;
+	<common imports>
+	public class UnitSphereTest extends ObjectTest {
+		public UnitSphereTest() {
+			super(new Vector3f(3.f, 0.f, 0.f));
+			root = new CSGUnitSphere();
+		}
+	}
+	<test scenes>+=
+	new UnitSphereTest(),
 <h5>Cone</h5>
 A cone for CSG operations. 
 The cone represents a solid cone shaped volume, defined by
@@ -1340,15 +1355,15 @@ Mathematically speaking a ball.
 	package rt.intersectables;
 	<common imports>
 
-	public class CSGSphere extends CSGSolid {
+	public class CSGSphere extends CSGCompound {
+        public CSGSphere() {this(new Vector3f(), 1.f);}
 		public CSGSphere(Vector3f center, float radius) {		
 			Matrix4f m = new Matrix4f(); m.setIdentity();
             m.m00 = radius;                                 m.m03 = center.x;
                             m.m11 = radius;                 m.m13 = center.y;
                                             m.m22 = radius; m.m23 = center.z;
             
-			CSGPlane p1 = new CSGInstance(new CSGXYPlane(), m);
-			root = p1;
+			root = new CSGInstance(new CSGUnitSphere(), m);
 		}
 	}
 	
@@ -1394,10 +1409,26 @@ Thus, the plane with normal 0,0,1 and d = -2 is the plane z = 2.
             m.m10 = t1.y; m.m11 = t2.y; m.m12 = n.y; m.m13 = -d*n.y;
             m.m20 = t1.z; m.m21 = t2.z; m.m22 = n.z; m.m23 = -d*n.z;
             
-			CSGPlane p1 = new CSGInstance(new CSGXYPlane(), m);
-			root = p1;
+			root = new CSGInstance(new CSGXYPlane(), m);
 		}
 	}
+    
+    <unit tests>+=
+    @Test
+    public void testCSGPlane() {
+        CSGPlane p = new CSGPlane(new Vector3f(0,1,0), 1);
+        HitRecord r = p.intersect(new Ray(new Vector3f(0,1,0), new Vector3f(0,0,1)));
+        assertTrue(r == null);
+
+        r = p.intersect(new Ray(new Vector3f(0,1,0), new Vector3f(0,-1,0)));
+        assertTrue(r != null);
+        assertEquals(2.f, r.t, 0.001f);
+
+        System.out.println(r.normal);
+        assertTrue(new Vector3f(0,1,0).equals(r.normal));
+
+    }
+    
     
 The following tests demonstrate how the plane parametrization works.
 You should see nothing on this image, because the plane is exactly at the camera position
@@ -1428,6 +1459,20 @@ You should see an infinite plane (in debug output) facing you in this test.
 	}
 	<test scenes>+=
 	new CSGPlaneTest2(),
+    
+<img src="output/rt.testscenes.CSGPlaneTest3 1SPP.png"></img>	
+	[rt/testscenes/CSGPlaneTest3.java]= 
+	package rt.testscenes;
+	<common imports>
+	public class CSGPlaneTest3 extends ObjectNormalTest {
+		public CSGPlaneTest3()
+		{
+			super(new Vector3f(0.f, 0.f, 1.f));
+			root = new CSGPlane(new Vector3f(0,1,0), 1);
+		}
+	}
+	<test scenes>+=
+	new CSGPlaneTest3(),
     
 <h5>CSGCube</h5>
 A cube implemented using planes and CSG. The cube occupies the volume [-1,1] x [-1,1] x [-1,1]. 
@@ -1474,8 +1519,8 @@ A cylinder along the z axis from -0.5 to 0.5 of radius 1.
 		public CSGUnitCylinder()
 		{
 			root = CSGNode.intersect(
-				new CSGPlane(new Vector3f(0.f,0.f,1.f),-1.f, m),
-				new CSGPlane(new Vector3f(0.f,0.f,-1.f),-1.f, m),
+				new CSGPlane(new Vector3f(0.f,0.f,1.f),-1.f),
+				new CSGPlane(new Vector3f(0.f,0.f,-1.f),-1.f),
 				new CSGInfiniteCylinder()
 			);
 		}
@@ -1561,7 +1606,7 @@ all faces are
 			}
 					
 			// Build CSG tree (just intersect all of it - this is a convex volume after all).
-			root = new CSGNode.intersect(planes);
+			root = CSGNode.intersect(planes);
 		}
 	}
 
@@ -1872,14 +1917,16 @@ centered anywhere.
 An instance of an intersectable is defined by an object o of which is represents
 an instance, and a transformation matrix t specifying where to place this „copy“.
 	<establish instance parameters>=
-	this.t = new Matrix4f(t);
-	ti = M.invert(t);
-	tit = new Matrix4f(ti);
-	tit.transpose(); 
-	this.o = o;
+        this.t = new Matrix4f(t);
+        ti = M.invert(t);
+        tit = new Matrix4f(ti);
+        tit.transpose(); 
+        this.o = o;
 tit is t inverse transposed. It is the special transformation matrix needed for normals.
 <img src=titnormals.png></img>
-Because other instancing classes share lots of code with this, we define the transformation of ray and result as static functions:
+Because other instancing classes share lots of code with this, 
+we define the transformation of ray and result as static functions.
+r_ denotes the original ray.
 	<transform ray>=
 	public static Ray transformRay(Ray r_, Matrix4f ti) {
 		Ray r = new Ray(r_.origin, r_.direction);
@@ -1890,20 +1937,21 @@ Because other instancing classes share lots of code with this, we define the tra
 		
 	<transform hit record>=
 	public static HitRecord transformHitRecord(HitRecord h, Ray r_, Matrix4f t, Matrix4f tit) {
-		M.transformVectorAsPoint(t, h.position);
 		tit.transform(h.normal);	
-		// Set the untransformed incoming direction
-		h.w = M.negate(r_.direction);
+		h.ray = r_;
 		return h;
 	}
+    
+    <instance transformations>=
+		private Matrix4f t, ti, tit; 
 
 	[rt/intersectables/Instance.java]= 
 	package rt.intersectables;
 	<common imports>
 
 	public class Instance extends Intersectable {
-		private Intersectable o;
-		private Matrix4f t, ti, tit; 
+		<instance transformations>
+        private Intersectable o;
 		public Instance(Intersectable o, Matrix4f t) {
 			<establish instance parameters>
 		}
@@ -2035,6 +2083,77 @@ Test scene for rendering triangle meshes.
 	ObjReader.read("obj/teapot.obj", 0.95f)
 	<test scenes>+=
 	new TeapotTest(),
+    
+<img src="output/rt.testscenes.TeapotTest2 1SPP.png"></img>	
+	[rt/testscenes/TeapotTest2.java]= 
+	package rt.testscenes;
+	<common imports>
+	public class TeapotTest2 extends ObjectTest {
+		public TeapotTest2()
+		{	
+			super(new Vector3f(0.f,0.f,2.f));
+            Matrix4f m = new Matrix4f(); m.setIdentity();
+            m.setTranslation(new Vector3f(0,0.5f,0));
+			root = new Instance(<load teapot>, m);
+		}
+	}
+	<test scenes>+=
+	new TeapotTest2(),
+  
+<img src="output/rt.testscenes.InstancingTeapots 1SPP.png"></img>	
+	[rt/testscenes/InstancingTeapots.java]= 
+	package rt.testscenes;
+
+	<common imports>
+
+	public class InstancingTeapots extends ObjectTest {
+
+		public IntersectableList objects;
+
+		public InstancingTeapots()
+		{	
+			integratorFactory = new DebugIntegratorFactory();
+			
+			setSPP(1);
+			setDimensions(256);
+			
+			// Make camera and film
+			Vector3f eye = new Vector3f(0.f,0.f,2.f);
+			Vector3f lookAt = new Vector3f(0.f,0.f,0.f);
+			Vector3f up = new Vector3f(0.f,1.f,0.f);
+			setCamera(eye, lookAt, up);
+			
+			// List of objects
+			objects = new IntersectableList();	
+			
+			// Add objects
+			Mesh mesh;
+				mesh = ObjReader.read("obj/teapot.obj", 1.f);
+			Matrix4f t = new Matrix4f();
+			t.setIdentity();
+			
+			// Instance one
+			t.setScale(0.5f);
+			t.setTranslation(new Vector3f(0.f, -0.35f, 0.f));
+			Instance instance = new Instance(mesh, t);
+			objects.add(instance);	
+			
+			// Instance two
+			t.setScale(0.5f);
+			t.setTranslation(new Vector3f(0.f, 0.25f, 0.f));
+			Matrix4f rot = new Matrix4f();
+			rot.setIdentity();
+			rot.rotX((float)Math.toRadians(30.f));
+			t.mul(rot);
+			instance = new Instance(mesh, t);
+			objects.add(instance);
+					
+			root = objects;
+		}
+	}
+	<test scenes>+=
+	new InstancingTeapots(),
+  
 	
 <h4>MeshTriangle</h4>	
 MeshTriangle defines a triangle by referring back to a Mesh
@@ -2176,7 +2295,7 @@ Then we can output the hit-record.
 	[rt/testscenes/TriangleTest.java]= 
 	package rt.testscenes;
 	<common imports>
-	public class TriangleTest extends ObjectUVTest {
+	public class TriangleTest extends ObjectTest {
 
 		public TriangleTest()
 		{
@@ -2201,7 +2320,7 @@ Then we can output the hit-record.
 	[rt/testscenes/TriangleTest2.java]= 
 	package rt.testscenes;
 	<common imports>
-	public class TriangleTest2 extends ObjectUVTest {
+	public class TriangleTest2 extends ObjectTest {
 
 		public TriangleTest2()
 		{
@@ -2246,13 +2365,30 @@ Then we can output the hit-record.
 	<test scenes>+=
 	new TriangleTest2(),
 
+    
+<img src="output/rt.testscenes.TriangleTest3 1SPP.png"></img>	
+	[rt/testscenes/TriangleTest3.java]= 
+	package rt.testscenes;
+	<common imports>
+	public class TriangleTest3 extends TriangleTest2 {
+
+		public TriangleTest3()
+		{
+			super();
+            integratorFactory = new IntersectableIdDebugIntegratorFactory();
+		}
+
+	}	
+	<test scenes>+=
+	new TriangleTest3(),
+    
 <h4>Mesh Primitives</h4>
 We provide some meshes that are constructed computationally (procedurally) 
 just because we can.
 <h5>MeshUnitCylinder</h5>
 The parameter n is the amount of sides.
 Issue: Uncapped as of now - this was only added to investigate a
-problem with the triangle intersection test. Also, there is no computation of normals.
+problem with the triangle intersection test. 
 Creates every triangle separately (not making use of index buffer).
 
 	[rt/intersectables/MeshUnitCylinder.java]=
@@ -2309,18 +2445,38 @@ We must construct triangles such that their vertices are in counter-clockwise or
 Where the vertices are
 	<vertex a>=
 	vertices[cv++] = x; vertices[cv++] = y; vertices[cv++] = z; 
+    normals[cn++] = x; normals[cn++] = y; normals[cn++] = 0; 
 	<vertex b>=
 	vertices[cv++] = x; vertices[cv++] = y; vertices[cv++] = -z;
+    normals[cn++] = x; normals[cn++] = y; normals[cn++] = 0; 
 	<vertex c>=
 	vertices[cv++] = nx; vertices[cv++] = ny; vertices[cv++] = z;
+    normals[cn++] = nx; normals[cn++] = ny; normals[cn++] = 0; 
 	<vertex d>=
 	vertices[cv++] = nx; vertices[cv++] = ny; vertices[cv++] = -z;
+    normals[cn++] = nx; normals[cn++] = ny; normals[cn++] = 0; 
 	
 Just advance by the six vertices we created.
 	<advance indices>=
 	for (int k = 0; k < 6; k++, ci++) 
 		indices[ci] = ci;
 	
+<img src=ut.jpg></img>
+    <unit tests>+=
+    @Test
+    public void testMeshUnitCylinder() {
+        float f = 1/M.sqrtf(2);
+        MeshUnitCylinder p = new MeshUnitCylinder(8);
+        HitRecord r = p.intersect(new Ray(new Vector3f(1,f,0.5f), new Vector3f(-1,0,0.5f)));
+        assertTrue(r != null);
+        assertEquals(1-f, r.t, 0.001f);
+        System.out.println(r.position());
+        assertEquals(f, r.position().x, 0.001f);
+        assertEquals(f, r.position().y, 0.001f);
+        assertEquals(0.5f, r.position().z, 0.001f);
+
+    }
+    
 In the test scene, we look at it from the side, i.e. from the +x axis, from
 	<muc origin>=
 	3.f, 0.f, 0.f
@@ -2339,6 +2495,58 @@ to be precise.
 	}
 	<test scenes>+=
 	new MUC(),
+    
+<img src="output/rt.testscenes.MUC2 1SPP.png"></img>
+	[rt/testscenes/MUC2.java]= 
+	package rt.testscenes;
+	<common imports>
+	public class MUC2 extends ObjectTest {//PinholeCameraScene {
+		public MUC2()
+		{
+			super(new Vector3f(<muc origin>));
+			root = new MeshUnitCylinder(8);
+            integratorFactory = new MaterialIntegratorFactory();
+            
+            root.setMaterial(new XYZGrid(
+                new Spectrum(1,0,0), 
+                new Vector3f(0.1f,0.1f,0.1f),
+                new Spectrum(1), 
+                new Vector3f(1,1,1),
+                
+                new Vector3f()
+            ));
+		}
+	}
+	<test scenes>+=
+	new MUC2(),
+    
+<img src="output/rt.testscenes.MU3 1SPP.png"></img>
+	[rt/testscenes/MU3.java]= 
+	package rt.testscenes;
+	<common imports>
+	public class MU3 extends ObjectTest {//PinholeCameraScene {
+		public MU3()
+		{
+			super(new Vector3f(3.f, 0.f, 3.f));
+			root = new IntersectableList(
+                new MeshUnitCylinder(8),
+                new CSGPlane(new Vector3f(0,0,1), 0.5f),
+                new CSGPlane(new Vector3f(1,0,0), 0.5f)
+            );
+            integratorFactory = new MaterialIntegratorFactory();
+            
+            root.setMaterial(new XYZGrid(
+                new Spectrum(1,0,0), 
+                new Vector3f(0.1f,0.1f,0.1f),
+                new Spectrum(1), 
+                new Vector3f(1,1,1),
+                
+                new Vector3f()
+            ));
+		}
+	}
+	<test scenes>+=
+	new MU3(),
     
 <h5>Rectangle</h5>
 A rectangle given by origin and two delta vectors.
@@ -2392,7 +2600,7 @@ It points into the direction of the cross product of da with db.
         
         <additional rectangle methods>
 	}
-    
+    <additional rectangle methods>=
 <h2>Acceleration Structures</h2>
 The naive approach to determining
     hit = first intersection with scene
@@ -2762,4 +2970,1263 @@ Overall:
 	}
 	<test scenes>+=
 	new BSPScene(),
+    
+<h2>Spectrum</h2>
+Let us now implement the line   
+    color = shade( hit )
+of the raytracing pseudocode.
+<p>
+We first need a representation of 'color' or 'light' that we will let our rays transport from the scene to the camera.
+<p>
+A 'Spectrum' stores a spectrum of color value intensities. 
+In this implementation, we work with RGB colors.
+<img src=spec.png></img>
+    <math utilities>+=
+    public static float random() {return (float)Math.random();}
+	[rt/Spectrum.java]= 
+	package rt;
+    <common imports>
+	public class Spectrum {
+		public float r, g, b;
+
+		public Spectrum()
+		{
+			r = 0.f;
+			g = 0.f;
+			b = 0.f;
+		}
+
+		public Spectrum(float r, float g, float b)
+		{
+			this.r = r;
+			this.g = g;
+			this.b = b;
+		}
+		
+		public Spectrum(float s) {this(s,s,s);}
+
+		public Spectrum(Spectrum s)
+		{
+			this.r = s.r;
+			this.g = s.g;
+			this.b = s.b;
+		}
+        
+        public static Spectrum random(float base, float scale)
+		{
+			return new Spectrum(
+                     base+M.random()*scale,
+                     base+M.random()*scale,
+                     base+M.random()*scale);
+		}
+        
+        public static Spectrum randomBright()
+		{
+            return random(0.5f, 0.5f);
+		}
+		
+		public Spectrum mult(float t)
+		{
+			r = r*t;
+			g = g*t;
+			b = b*t;
+			return this;
+		}
+		
+		/**
+		 * Stretch this. Returns this.
+		 */
+		public Spectrum mult(Spectrum s)
+		{
+			r = r*s.r;
+			g = g*s.g;
+			b = b*s.b;
+			return this;
+		}
+		
+		/**
+		 * Adds s to this and returns this.
+		 */
+		public Spectrum add(Spectrum s)
+		{
+			r = r+s.r;
+			g = g+s.g;
+			b = b+s.b;
+			return this;
+		}
+		
+		/**
+		 * Clamp all components of this returns this.
+		 */
+		public Spectrum clamp(float min, float max)
+		{
+			r = M.clamp(r, min, max);
+			g = M.clamp(g, min, max);
+			b = M.clamp(b, min, max);
+			return this;
+		}
+        
+        public Spectrum clamp()
+		{
+			return clamp(0, 1.f);
+		}
+	}
+    
+    <unit tests>+=
+    @Test
+    public void testSpectrum() {
+        Spectrum h = new Spectrum(2,-1.f,0);
+        assertTrue(h.r == 2 && h.g == -1.f && h.b == 0);
+        h.clamp();
+        assertEquals(h.r, 1.f, 0.0001f);
+        assertEquals(h.g, 0.f, 0.0001f);
+    }
+    
+<h2>Integrator</h2>
+Recall that we make an integrator responsible for getting the color, that is,
+the pseudocode line
+    color = shade( hit )
+is implemented by
+    Spectrum s = integrator.integrate(r);	
+In fact, we let the integrator also execute the command 
+    hit = first intersection with scene
+via
+    <get first intersection with scene>=
+    HitRecord hitRecord = scene.getIntersectable().intersect(r);
+    
+An integrator thus takes a ray r
+(that might be starting at the camera, or some point on an object’s surface) 
+and evaluates the color of the surface it hits.
+<p>
+The name "integrator" refers to the fact that solving the (physically based)
+„rendering equation“ requires integrating over the space of all 
+light paths connecting the camera and a 'light source'.
+Various implementations of this interface may make different 
+approximations and simplifications regarding the solution
+of the rendering equation, see below.	
+
+
+	[rt/Integrator.java]= 
+	package rt;
+    <common imports>
+	public abstract class Integrator {
+        public Sampler sampler;
+        public Scene scene;
+        public Integrator(Scene scene) {
+            this.scene = scene;
+            sampler = scene.getSamplerFactory().make();
+        }
+        
+		<integrator methods>
+	}
+	
+To compute the contribution of a ray to the image, we call
+	<integrator methods>+=
+	public abstract Spectrum integrate(Ray r);
+	
+The method
+	<integrator methods>+=
+    public float[][] makePixelSamples(Sampler sampler, int n) {
+        return sampler.makeSamples(n, 2);
+    }
+Generates n two dimensional samples (i.e. an n by 2 array of floats in range 0 to 1). 
+This is required by the integrator to evaluate light paths and possibly by other parts
+of the system to approximate integrals by montecarlo sampling. This is also used to
+determine subpixel sample locations.
+The sampler might be a specialized implementation of random noise, or a dummy
+implementation without any randomness. 
+<p>
+We also provide a method to create only one 2d sample. 
+This can be used to sample surfaces of e.g. lightsources.
+    <integrator methods>+=
+    public float[] make2dSample() {
+        return makePixelSamples(sampler, 1)[0];
+    }
+
+<h3>(Integrator Factory)</h3>
+For technical reasons, we don't just create integrator objects directly.
+We use the factory pattern of object creation instead.
+	[rt/IntegratorFactory.java]= 
+	package rt;
+
+	public abstract class IntegratorFactory {
+		public abstract Integrator make(Scene scene);
+		public void prepareScene(Scene scene) {}
+	}
+	
+<h3>Debug Integrators</h3>
+The simplest integrators we can write visualize
+
+For example, they can simply return a white spectrum if the ray hits something, and black otherwise.
+Any other visualization of data associated with a hit record may be useful:
+<ul>
+<li>Intersection time and position
+<li>Hit point surface normal
+<li>Visualization of intersectable id
+</ul> 
+
+<h4>World position</h4>
+Here is an example:
+<img src=debug.png></img>
+This image was obtained by encoding the xyz world coordinates of the hitpoints into the rgb channels.
+We use the transformation
+	<infinity to one>=
+	0.5f+0.5f*(float)Math.atan(a)/((float)Math.PI*0.5f)
+which transforms the range [-∞, ∞] to [0, 1], with high resolution around small values:
+<img src=scale.png></img>
+	[rt/integrators/DebugIntegrator.java]= 
+	package rt.integrators;
+	<common imports>
+	public class DebugIntegrator extends Integrator {
+		
+		public DebugIntegrator(Scene scene) {super(scene);}
+
+		public static float posf(float a) {
+			return <infinity to one>;
+		}
+		
+		public static Spectrum positionToColor(Vector3f v) {
+			<apply posf to vector components>
+		}
+		
+		public Spectrum integrate(Ray r) {
+            <get first intersection with scene>
+			if (hitRecord == null) return new Spectrum(0.f,0.f,0.f);
+			if (hitRecord.t <= 0.f) return new Spectrum(1.f,0.f,0.f); // should not happen
+			return positionToColor(hitRecord.position());
+		}
+
+	}
+	
+	<apply posf to vector components>=
+	return new Spectrum(posf(v.x),posf(v.y),posf(v.z));
+		
+	[rt/integrators/DebugIntegratorFactory.java]= 
+	package rt.integrators;
+	import rt.*;
+	public class DebugIntegratorFactory extends IntegratorFactory {
+		public Integrator make(Scene scene) {return new DebugIntegrator(scene);}
+	}
+<h4>Normal</h4>	
+Here is one that shows the world-space normals of the hitpoints
+<img src=normals.png></img>
+	[rt/integrators/NormalDebugIntegrator.java]= 
+	package rt.integrators;
+	<common imports>
+	public class NormalDebugIntegrator extends DebugIntegrator {
+		public NormalDebugIntegrator(Scene scene) {super(scene);}
+
+		// [-1, 1] to [0, 1] linearly
+		public static float posf(float a) {
+			return (a+1)*0.5f;
+		}
+		
+		public static Spectrum normalToColor(Vector3f v) {
+			<apply posf to vector components>
+		}
+		
+		public Spectrum integrate(Ray r) {
+			<get first intersection with scene>
+			if (hitRecord == null) return new Spectrum(0.f,0.f,0.f);
+			if (hitRecord.t <= 0.f) return new Spectrum(1.f,0.f,0.f);
+			return normalToColor(hitRecord.normal);
+		}
+	}
+		
+	[rt/integrators/NormalDebugIntegratorFactory.java]= 
+	package rt.integrators;
+	import rt.*;
+	public class NormalDebugIntegratorFactory extends IntegratorFactory {
+		public Integrator make(Scene scene) {return new NormalDebugIntegrator(scene);}
+	}
+<h4>Intersectable Id</h4>
+    <additional intersectable methods and data>+=
+    public Spectrum id = Spectrum.randomBright();
+    
+    [rt/integrators/IntersectableIdDebugIntegrator.java]= 
+	package rt.integrators;
+	<common imports>
+	public class IntersectableIdDebugIntegrator extends DebugIntegrator {
+		public IntersectableIdDebugIntegrator(Scene scene) {super(scene);}
+
+		public Spectrum integrate(Ray r) {
+			<get first intersection with scene>
+			if (hitRecord == null) return new Spectrum(0.f,0.f,0.f);
+			if (hitRecord.t <= 0.f) return new Spectrum(1.f,0.f,0.f);
+			return hitRecord.intersectable.id;
+		}
+	}
+		
+	[rt/integrators/IntersectableIdDebugIntegratorFactory.java]= 
+	package rt.integrators;
+	import rt.*;
+	public class IntersectableIdDebugIntegratorFactory extends IntegratorFactory {
+		public Integrator make(Scene scene) {return new IntersectableIdDebugIntegrator(scene);}
+	}
+    
+<h3>Material Based Integrators</h3>
+All of the more complex integrators give more complex color output derived from 
+data and surface properties assigned to the objects and dependent on other objects in the scene.
+They use secondary rays starting at the first intersection point to 
+obtain information about the environment.
+
+<h4>Surface Materials</h4>
+Recall that our hit reccord only records the Intersectable that was hit so far.
+To create nice images with possibly repeated objects sharing their appearance,
+objects of the scenes are assigned so called materials 
+which give parameters and algorithms for 'shading'
+(that is, computing the color of) the corresponding surface.
+
+    <additional intersectable methods and data>+=
+    public Material material = null;
+    
+    public void setMaterial(Material m) {
+        this.material = m;
+        for (Intersectable i : this) i.material = m;
+    }
+    
+    [rt/Material.java]= 
+	package rt;
+	<common imports>
+	public abstract class Material {
+        <material methods and data>
+    }
+    
+<h5>Material Id Debug Integrator</h5>
+This assignment immediately gives raise to an alternative to the intersectable id integrator:
+We can visualize the material id (if present)
+    <material methods and data>+=
+    public Spectrum id = Spectrum.randomBright();
+    
+    [rt/integrators/MaterialIdDebugIntegrator.java]= 
+	package rt.integrators;
+	<common imports>
+	public class MaterialIdDebugIntegrator extends DebugIntegrator {
+		public MaterialIdDebugIntegrator(Scene scene) {super(scene);}
+
+		public Spectrum integrate(Ray r) {
+			<get first intersection with scene>
+			if (hitRecord == null) return new Spectrum(0.f,0.f,0.f);
+			if (hitRecord.t <= 0.f || hitRecord.intersectable.material == null)
+                return new Spectrum(1.f,0.f,0.f);
+			return hitRecord.intersectable.material.id;
+		}
+	}
+		
+	[rt/integrators/MaterialIdDebugIntegratorFactory.java]= 
+	package rt.integrators;
+	import rt.*;
+	public class MaterialIdDebugIntegratorFactory extends IntegratorFactory {
+		public Integrator make(Scene scene) {return new MaterialIdDebugIntegrator(scene);}
+	}
+
+<h4>Material Shading</h4>
+A material's job is to give a color for a given hitRecord. 
+It may also refer back to the Integrator to cast more rays.
+If you happen to be familiar with (realtime) computer graphics, this 
+is basically supposed to do what a pixel shader does. 
+Only with vastly extended capabilities.
+    <material methods and data>+=
+    public abstract Spectrum shade(HitRecord hitRecord, Integrator integrator);
+    
+<h5>Material Integrator</h5>
+Everything an integrator for materials has to do is call the shade method.
+    [rt/integrators/MaterialIntegrator.java]= 
+	package rt.integrators;
+	<common imports>
+	public class MaterialIntegrator extends Integrator {
+		public MaterialIntegrator(Scene scene) {super(scene);}
+
+		public Spectrum integrate(Ray r) {
+			<get first intersection with scene>
+			if (hitRecord == null) return new Spectrum(0.f,0.f,0.f);
+            if (hitRecord.t <= 0.f || hitRecord.intersectable.material == null)
+                return new Spectrum(1.f,0.f,0.f);
+			return hitRecord.intersectable.material.shade(hitRecord, this);
+		}
+	}
+		
+	[rt/integrators/MaterialIntegratorFactory.java]= 
+	package rt.integrators;
+	import rt.*;
+	public class MaterialIntegratorFactory extends IntegratorFactory {
+		public Integrator make(Scene scene) {return new MaterialIntegrator(scene);}
+	}
+
+<h5>Debug Materials</h5>
+We could for example outsource what the debug integrators do to a material shader:
+<h4>Position Debug</h4>
+Same result as DebugIntegrator.
+	[rt/materials/DebugMaterial.java]= 
+	package rt.materials;
+	<common imports>
+	public class DebugMaterial extends Material {
+		public Spectrum shade(HitRecord hitRecord, Integrator integrator) {
+			return DebugIntegrator.positionToColor(hitRecord.position);
+		}
+	}
+<h4>Normal Debug</h4>
+Same result as NormalDebugIntegrator.
+	[rt/materials/NormalDebugMaterial.java]= 
+	package rt.materials;
+	<common imports>
+	public class NormalDebugMaterial extends Material {
+		public Spectrum shade(HitRecord hitRecord, Integrator integrator) {
+			return NormalDebugIntegrator.normalToColor(hitRecord.normal);
+		}
+	}
+<h4>XYZGrid</h4>
+Instead of converting 3d positions to color continuously, we can modulo them to get 
+a grid pattern.
+    <math utilities>+=
+    public static float modf(float x, float d) {
+        float y = x % d;
+        if (y < 0) y = d + y;
+        return y;
+    }
+    
+    <unit tests>+=
+    @Test
+    public void testModf() {
+        assertEquals(.05f,M.modf(1.05f,0.1f), 0.0001f);
+        assertEquals(.05f,M.modf(-1.05f,0.1f),0.0001f);
+        
+        assertEquals(0.2f,M.modf(0.2f,1.f),0.0001f);
+    }
+    
+	[rt/materials/XYZGrid.java]= 
+	package rt.materials;
+	<common imports>
+	public class XYZGrid extends Material {
+		Spectrum lineColor, backgroundColor;
+		Vector3f offset, lineThickness, backgroundRep;
+
+		public XYZGrid(
+				Spectrum lineColor, 
+                Vector3f lineThickness,
+                
+				Spectrum backgroundColor, 
+				Vector3f backgroundRep,
+                
+                Vector3f offset) {
+			this.backgroundColor = new Spectrum(backgroundColor);
+			this.lineColor = new Spectrum(lineColor);
+			this.offset = new Vector3f(offset);
+            this.backgroundRep = new Vector3f(backgroundRep);
+			this.lineThickness = new Vector3f(lineThickness);
+		}
+		
+		private boolean c(float x, float p, float d) {
+			return M.modf(x, d) < p;
+		}
+        
+		public Spectrum shade(HitRecord hitRecord, Integrator integrator) {
+			if (c(hitRecord.position().x + offset.x, lineThickness.x, backgroundRep.x) 
+             || c(hitRecord.position().y + offset.y, lineThickness.y, backgroundRep.y) 
+             || c(hitRecord.position().z + offset.z, lineThickness.z, backgroundRep.z))
+				return new Spectrum(lineColor);
+			return new Spectrum(backgroundColor);
+		}
+
+	}
+    
+        
+    <unit tests>+=
+    @Test
+    public void testXYZGrid() {
+        Material m = new XYZGrid(
+            new Spectrum(0),
+            new Vector3f(0.1f,0.1f,0.1f),
+            new Spectrum(1),
+            new Vector3f(1.f,1.f,1.f),
+            
+            new Vector3f()
+        );
+        
+        Spectrum s = m.shade(
+            new HitRecord(
+                new Ray(new Vector3f(),new Vector3f(0.2f,0.2f,0.2f)), 
+                1.f, 
+                null,
+                new Vector3f()
+                ), null);
+        
+        assertEquals(1.f, s.r, 0.0001f);
+        
+        s = m.shade(
+            new HitRecord(
+                new Ray(new Vector3f(),new Vector3f(0.05f,0.2f,0.2f)), 
+                1.f, 
+                null,
+                new Vector3f()
+                ), null);
+        
+        assertEquals(0.f, s.r, 0.0001f);
+    }
+    
+    @Test
+    public void testXYZGrid2() {
+        Material m = new XYZGrid(
+                new Spectrum(1,0,0), 
+                new Vector3f(0.1f,0.1f,0.1f),
+                new Spectrum(1), 
+                new Vector3f(1,1,1),
+            
+            new Vector3f()
+        );
+        
+        Spectrum s = m.shade(
+            new HitRecord(
+                new Ray(new Vector3f(),new Vector3f(0.2f,0.2f,0.2f)), 
+                1.f, 
+                null,
+                new Vector3f()
+                ), null);
+        
+        assertEquals(1.f, s.g, 0.0001f);
+        
+        s = m.shade(
+            new HitRecord(
+                new Ray(new Vector3f(),new Vector3f(0.05f,0.2f,0.2f)), 
+                1.f, 
+                null,
+                new Vector3f()
+                ), null);
+        
+        assertEquals(0.f, s.g, 0.0001f);
+    }
+
+<h2>Sampler</h2>
+Samplers make random samples, which are used for Monte Carlo rendering. The 
+samples always need to lie in the range [0,1]. Various versions such 
+as purely random, jittered, or low discrepancy samplers could be 
+implemented.
+<p>
+makeSamples makes an array of samples. The samples need to lie in the range [0,1]^d,
+where d is the dimensionality of the samples.
+The number of returned samples may differ from the number of desired samples n.
+	<make samples>=
+	public float[][] makeSamples(int n, int d);  
+	[rt/Sampler.java]= 
+	package rt;
+	public interface Sampler {
+		<make samples>
+	}
+		
+	[rt/SamplerFactory.java]= 
+	package rt;
+
+	public interface SamplerFactory {
+		public Sampler make();
+	}
+	
+<h3>OneSampler</h3>
+Returns always one sample at 0.5 in all dimensions.
+	[rt/samplers/OneSampler.java]= 
+	package rt.samplers;
+
+	<common imports>
+
+	public class OneSampler implements Sampler {		
+		public float[][] makeSamples(int n, int d)
+		{
+			float[][] samples = new float[1][d];
+			for(int i=0; i<d; i++)
+				samples[0][i] = 0.5f;
+			
+			return samples;
+		}
+	}
+		
+	[rt/samplers/OneSamplerFactory.java]= 
+	package rt.samplers;
+
+	<common imports>
+	public class OneSamplerFactory implements SamplerFactory {
+		public Sampler make() {return new OneSampler();}
+	}
+		
+<h3>RandomSampler</h3>
+Makes uniform random samples in the range [0,1].
+	[rt/samplers/RandomSampler.java]= 
+	package rt.samplers;
+
+	<common imports>
+	public class RandomSampler implements Sampler {
+
+		Random random = new Random();
+		public float[][] makeSamples(int n, int d)
+		{
+			float samples[][] = new float[n][d];
+			
+			for(int i=0; i<n; i++) for(int j=0; j<d; j++)
+			{
+				samples[i][j] = random.nextFloat();
+			}
+			return samples;
+		}
+		
+	}
+		
+	[rt/samplers/RandomSamplerFactory.java]= 
+	package rt.samplers;
+	<common imports>
+	public class RandomSamplerFactory implements SamplerFactory {
+		public Sampler make() {return new RandomSampler();}
+	}
+	
+    
+<h2>Film</h2>
+This and the next section are concerned with the pseudocode
+    set pixel color
+of the basic raytracing algorithm.
+<p>
+A film captures the samples generated for (sub) pixels
+	<add sample>=
+	public void addSample(double x, double y, Spectrum s);
+and accretes them in discrete pixels, much like a photo sensor in a digital camera integrates
+the light arriving at the square shaped sensors.
+The final image is a rectangular array of light spectra.
+	<retrieve array>=
+	public Spectrum[][] getImage();
+	public int getWidth();
+	public int getHeight();
+	
+So a film stores a 2D grid of Spectrum representing an image.
+Rendered samples can be added one by one to a film. Samples are
+filtered using some filter (depending on the implementation of this 
+interface) when added.
+	[rt/Film.java]= 
+	package rt;
+	public interface Film {
+		<add sample>
+		<retrieve array>
+	}
+	
+<h3>BoxFilterFilm</h3>	
+This film uses a box filter when accumulating samples on a film.
+A box filter means that samples s contribute only to the pixel (x,y) that they lie in.
+	<add sample to film>=
+	int idx_x = (int)x;
+	int idx_y = (int)y;
+    
+	unnormalized[idx_x][idx_y].add(s);
+	nSamples[idx_x][idx_y]++;
+    
+Sample values are simply averaged for the final image.
+	<average sample values>=
+	image[i][j] = new Spectrum(unnormalized[i][j]).mult(1.f/nSamples[i][j]);
+
+	[rt/films/BoxFilterFilm.java]= 
+	package rt.films;
+    <common imports>
+	public class BoxFilterFilm implements Film {
+		private Spectrum[][] image;
+		public int width, height;
+		private Spectrum[][] unnormalized;
+		private float nSamples[][];
+		
+		public BoxFilterFilm(int width, int height)
+		{
+			this.width = width;
+			this.height = height;
+			image = new Spectrum[width][height];
+			unnormalized = new Spectrum[width][height];
+			nSamples = new float[width][height];
+			
+			for(int i=0; i<width; i++) for(int j=0; j<height; j++) {
+                image[i][j] = new Spectrum();
+                unnormalized[i][j] = new Spectrum();
+            }
+		}
+		
+		public void addSample(double x, double y, Spectrum s)
+		{
+			if((int)x>=0 && (int)x<width && (int)y>=0 && (int)y<height) {
+				<add sample to film>
+			}
+		}
+		
+		public int getWidth() {return width;}
+		public int getHeight() {return height;}
+		
+		public Spectrum[][] getImage()
+		{
+			for(int i=0; i<width; i++) for(int j=0; j<height; j++) {
+                <average sample values>
+            }
+			return image;
+		}
+	}
+		
+<h2>Tonemapper</h2>
+A Tonemapper compresses a raw rendered Film to an image that can be displayed on typical 8-bit displays.
+	[rt/Tonemapper.java]= 
+	package rt;
+	<common imports>
+
+	public interface Tonemapper {
+		BufferedImage process(Film film);
+	}
+	
+Tone maps a film by clamping all color channels to range [0,1].
+	<do clamping>=
+	Spectrum s = filmImg[i][j].clamp();
+    
+Then we convert these to 24 bit (24 bpp) 8-bit per channel colors.
+    <convert spectrum to rgb integer>=
+     ((int)(255.f*s.r) << 16) 
+    | ((int)(255.f*s.g) << 8) 
+    | ((int)(255.f*s.b))
+    
+	[rt/tonemappers/ClampTonemapper.java]= 
+	package rt.tonemappers;
+	
+	<common imports>
+
+	public class ClampTonemapper implements Tonemapper {
+		public BufferedImage process(Film film)
+		{
+			BufferedImage img = new BufferedImage(film.getWidth(), film.getHeight(), BufferedImage.TYPE_3BYTE_BGR);
+			
+			Spectrum[][] filmImg = film.getImage();
+			for(int i=0; i<film.getWidth(); i++) for(int j=0; j<film.getHeight(); j++) {
+				<do clamping>
+                
+				img.setRGB(i, film.getHeight()-1-j, 
+                    <convert spectrum to rgb integer>
+				);
+			}
+			return img;
+		}
+	}
+
+<h2>Test Scenes</h2>
+<h3>Rendered Scenes</h3>
+
+The following class encapsulates some defaults shared by most scenes.
+	[rt/basicscenes/AbstractScene.java]= 
+	package rt.basicscenes;
+	<common imports>
+	public abstract class AbstractScene extends Scene {
+		public void setDimensions(int w, int h) {
+			width = w; height = h;
+			film = new BoxFilterFilm(width, height);
+			camera = new FixedCamera(width, height);
+		}
+		
+		public void setDimensions(int wh) {
+			setDimensions(wh, wh);
+		}
+		
+		public void setSPP(int s) {
+			SPP = s;
+			outputFilename = new String("output/"+this.getClass().getName());
+			outputFilename = outputFilename + " " + String.format("%d", SPP) + "SPP";
+			if (s > 1) samplerFactory = new RandomSamplerFactory();
+			else samplerFactory = new OneSamplerFactory();
+		}
+		
+		public AbstractScene() {
+			setDimensions(512);
+			setSPP(1);
+            integratorFactory = new NormalDebugIntegratorFactory();
+			tonemapper = new ClampTonemapper();
+			samplerFactory = new OneSamplerFactory();
+		}
+	}
+		
+Here are two tests demonstrating that the FixedCamera works:
+	[rt/basicscenes/Box.java]= 
+	package rt.basicscenes;
+	<common imports>
+	public class Box extends AbstractScene {
+		public Box() {
+			root = new CSGCappedZTunnel();
+		}
+	}
+	<test scenes>+=
+	new Box(),
+		
+<img src="output/rt.basicscenes.Dodecahedron 1SPP.png"></img>
+	[rt/basicscenes/Dodecahedron.java]= 
+	package rt.basicscenes;
+	<common imports>
+	public class Dodecahedron extends AbstractScene {
+		public Dodecahedron()
+		{
+			root = CSGNode.add(
+					new CSGPlane(new Vector3f(0.f, 1.f, 0.f), 1.f),
+					new CSGPlane(new Vector3f(0.f, 0.f, 1.f), 1.f),
+					new CSGDodecahedron()
+				);
+		}
+	}	
+	<test scenes>+=
+	new Dodecahedron(),
+	
+	[rt/testscenes/PinholeCameraScene.java]= 
+	package rt.testscenes;
+	<common imports>
+	public abstract class PinholeCameraScene extends AbstractScene {
+		public Vector3f eye, lookAt, up;
+		
+		public void setDimensions(int w, int h) {
+			super.setDimensions(w, h);
+			setCamera(eye == null ? new Vector3f() : eye, 
+					lookAt == null ? new Vector3f() : lookAt, 
+							up == null ? new Vector3f() : up);
+		}
+		
+		public PinholeCameraScene() {}
+		public PinholeCameraScene(Vector3f eye) {setCamera(eye, new Vector3f(), <up vector>);}
+		
+		public void setCamera(Vector3f eye,
+				Vector3f lookAt,
+				Vector3f up) {
+			this.eye = eye;
+			this.lookAt = lookAt;
+			this.up = up;
+			float verticalFovInDegrees = 60.f;
+			float aspect = (width * 1.f)/height;
+			camera = new PinholeCamera(eye, lookAt, up, verticalFovInDegrees, aspect, width, height);
+		}
+	}
+			
+A test baseclass for objects that looks at the origin and uses the debug integrator
+	[rt/testscenes/ObjectTest.java]= 
+	package rt.testscenes;
+	<common imports>
+	public abstract class ObjectTest extends PinholeCameraScene {
+        public ObjectTest() {this(new Vector3f());}
+		public ObjectTest(Vector3f eye) {
+			setCamera(eye, new Vector3f(), <up vector>);
+			integratorFactory = new DebugIntegratorFactory();
+		}
+	}
+Same thing but with the normal debug integrator.
+	[rt/testscenes/ObjectNormalTest.java]= 
+	package rt.testscenes;
+	<common imports>
+	public abstract class ObjectNormalTest extends ObjectTest {
+        public ObjectNormalTest() {this(new Vector3f());}
+		public ObjectNormalTest(Vector3f eye) {
+			super(eye);
+			integratorFactory = new NormalDebugIntegratorFactory();
+		}
+	}
+	[rt/testscenes/ObjectIdTest.java]= 
+	package rt.testscenes;
+	<common imports>
+	public abstract class ObjectIdTest extends PinholeCameraScene {
+        public ObjectIdTest() {this(new Vector3f());}
+		public ObjectIdTest(Vector3f eye) {
+			setCamera(eye, new Vector3f(), <up vector>);
+			integratorFactory = new IntersectableIdDebugIntegratorFactory();
+		}
+	}
+Test scene for pinhole camera specifications.
+<img src="output/rt.testscenes.CameraTestScene 1SPP.png"></img>
+	[rt/testscenes/CameraTestScene.java]= 
+	package rt.testscenes;
+	<common imports>
+	public class CameraTestScene extends ObjectNormalTest {
+		public CameraTestScene()
+		{
+			setDimensions(1280, 720);
+			Vector3f eye = new Vector3f(0.5f, 0.5f, 3.f);
+			Vector3f lookAt = new Vector3f(0.5f, 0.f, 0.f);
+			Vector3f up = new Vector3f(0.2f, 1.f, 0.f);
+			setCamera(eye, lookAt, up);
+			root = new CSGCappedZTunnel();
+		}
+	}
+	<test scenes>+=
+	new CameraTestScene(),
+    
+		
+<h2>Appendix: Utilities</h2>
+The dot product can be used to determine whether two vectors n and d lie in the same halfspace:
+<img src=dothalfspace.JPG></img>
+	<determine halfspace>=
+	public static boolean sameHalfspace(Vector3f n, Vector3f d) {
+		return n.dot(d) > 0;
+	}
+	
+The following function computes ray-sphere intersection times 
+(<a href=http://sci.tuomastonteri.fi/programming/sse/example3>source</a>). 
+Note: we can return all hit points,
+also the ones with negative t-value, that is, points that lie "behind"
+the origin of the ray.
+Use dFac -1 to solve for first, 1 for second hitpoint.
+    <ray sphere intersection>=
+		public static float intersectSphere(Vector3f center, float radius, Ray r, float dFac) {
+			float a = r.direction.dot(r.direction); // Squared length of ray direction vector. > 0.
+			float b = r.direction.dot(M.scale(2.0f, M.sub(r.origin, center)));
+			float c = center.dot(center) + r.origin.dot(r.origin) 
+					- 2.0f*r.origin.dot(center)
+					- radius*radius;
+			// ^^ end of vector stuff
+			
+			// Discriminant of quadratic equation.
+			float D = b*b + (-4.0f)*a*c;
+			
+			// If ray can not intersect then stop
+			if (D < 0) return Float.NEGATIVE_INFINITY;
+			D = (float)Math.sqrt(D);
+
+			// Ray can intersect the sphere, solve the closer hitpoint (negative D)
+			float a2 = 2 * a;
+			float t = -b/a2 + dFac*D/a2;
+			return t;
+		}
+    
+We can easily compute tangents to a given normal.    
+The first tangent is obtained by taking the cross product of the normal with an arbitrarily chosen vector.
+	<math utilities>+=
+	public static Vector3f tangentTo(Vector3f normal) {
+		Vector3f t1 = new Vector3f(1,0,0);
+		t1.cross(t1, normal);
+		<correct tangent failure>
+		t1.normalize();
+		return t1;
+	}
+In the unlikely case that the normal and this vector happened to point in the same direction (such that the area of their parallelogram and thus the length of the cross product is 0), take another one.
+	<correct tangent failure>=
+		if (t1.length() == 0) {
+			t1 = new Vector3f(0,1,0);
+			t1.cross(t1, normal);
+		}
+	[rt/M.java]= 
+	package rt;
+	<common imports>
+	public class M {
+        public static final float PI = (float)Math.PI;
+        
+        <ray sphere intersection>
+        
+		<determine halfspace>
+        
+		/** Squared distance between v1 and v2, ||v1 - v2||^2 */
+		public static float dist2(Tuple3f v1, Tuple3f v2)
+		{
+			return sub(v1, v2).lengthSquared();
+		}
+		
+		/** v1 - v2, Vector that points from v2 to v1. */
+		public static Vector3f sub(Tuple3f v1, Tuple3f v2)
+		{
+			Vector3f r = new Vector3f(v1);
+			r.sub(v2);
+			return r;
+		}
+		
+		public static Vector3f normalize(Vector3f v) {
+			Vector3f r = new Vector3f(v);
+			r.normalize();
+			return r;
+		}
+		
+		public static float clamp(float f, float min, float max) {
+			return f < min ? min : f > max ? max : f; // TODO would Math.min/max be faster?
+		}
+
+		public static float clamp(float f) {
+			return clamp(f, 0.f, 1.f);
+		}
+		
+		public static float sqrtf(float f) {
+			return (float)Math.sqrt(f);
+		}
+		
+        public static float sqr(float f) {
+            return f*f;
+		}
+
+		public static float expf(float a) {
+			return (float)Math.exp(a);
+		}
+
+		public static float powf(float a, float b) {
+			return (float)Math.pow(a, b);
+		}
+		
+		/** v1 + v2 */
+		public static Vector3f add(Tuple3f v1, Tuple3f v2)
+		{
+			Vector3f r = new Vector3f(v1);
+			r.add(v2);
+			return r;
+		}
+		
+		/** v1 x v2, vector that is perpendicular to both v1 and v2 and has length = area of parallelogramm
+		 * spanned by the two. */
+		public static Vector3f cross(Vector3f v1, Vector3f v2)
+		{
+			Vector3f r = new Vector3f();
+			r.cross(v1, v2);
+			return r;
+		}
+		
+		/** - v */
+		public static Vector3f negate(Vector3f v)
+		{
+			Vector3f r = new Vector3f(v);
+			r.negate();
+			return r;
+		}
+		
+		/** s (Scalar) * v */
+		public static Vector3f scale(float s, Vector3f v)
+		{
+			Vector3f r = new Vector3f(v);
+			r.scale(s);
+			return r;
+		}
+        
+        public static Vector3f scale(Vector3f v, float s) {return scale(v,s);}
+		
+		/** m^-1 */
+		public static Matrix4f invert(Matrix4f m)
+		{
+			Matrix4f r = new Matrix4f(m);
+			r.invert();
+			return r;
+		}
+
+		public static Vector3f transformVectorAsPoint(Matrix4f t, Vector3f v) {
+			Point3f p = new Point3f(v);
+			t.transform(p);
+			return new Vector3f(p);
+		}
+
+		/** o + d * t */
+		public static Vector3f t(Vector3f o, Vector3f d, float t) {
+			Vector3f n = new Vector3f(d);
+			n.scaleAdd(t, o);
+			return n;
+		}
+
+		<math utilities>
+	}
+		
+A utility class to help us run benchmarks.
+	[rt/Timer.java]= 
+	package rt;
+    <common imports>
+	public class Timer {
+		private long _startTime;
+        
+		public Timer() { _startTime = this.timeNow(); }
+		
+		public long timeElapsed() {
+			return this.timeNow() - _startTime;
+		}
+
+		private long timeNow() {return new Date().getTime();}
+	} 	
+	
+<h2>Appendix: Obj Reader</h2>
+The only external scene and data description format that we currently support are obj files.
+This reads an .obj file including normals and stores it in a Mesh.
+scale scales the object to fit into a cube of the given size
+	[rt/ObjReader.java]= 
+	package rt;
+	<common imports>
+	public class ObjReader {
+		public static Mesh read(String fileName, float scale) {
+			Mesh mesh;
+			try {
+				mesh = ObjReader._read(fileName, scale);
+			} catch(IOException e) {
+				throw new RuntimeException("Could not read .obj file: "+fileName);
+			}
+			return mesh;
+		}
+		
+		private static Mesh _read(String fileName, float scale) throws IOException
+		{
+			BufferedReader reader;
+			ArrayList<float[]> vertices = new ArrayList<float[]>();
+			ArrayList<float[]> texCoords = new ArrayList<float[]>();
+			ArrayList<float[]> normals = new ArrayList<float[]>();
+			ArrayList<int[][]> faces = new ArrayList<int[][]>();
+			
+			boolean hasNormals, hasTexCoords;
+			hasNormals = true;
+			hasTexCoords = true;
+			
+			// Extents for normalization
+			float xMin, xMax, yMin, yMax, zMin, zMax;
+			xMin = Float.MAX_VALUE;
+			xMax = Float.MIN_VALUE;
+			yMin = Float.MAX_VALUE;
+			yMax = Float.MIN_VALUE;
+			zMin = Float.MAX_VALUE;
+			zMax = Float.MIN_VALUE;
+			
+			reader = new BufferedReader(new FileReader(fileName));
+
+			String line = null;
+			while((line = reader.readLine()) != null)
+			{	
+				// Read line
+				String[] s = line.split("\\s+");
+				
+				// Parse
+				if(s[0].compareTo("v")==0)
+				{
+					// Position
+					float[] v = new float[3];
+					v[0] = Float.valueOf(s[1]).floatValue();
+					v[1] = Float.valueOf(s[2]).floatValue();
+					v[2] = Float.valueOf(s[3]).floatValue();
+					vertices.add(v);
+					
+					// Update extent
+					if(v[0] < xMin) xMin = v[0];
+					if(v[0] > xMax) xMax = v[0];
+					if(v[1] < yMin) yMin = v[1];
+					if(v[1] > yMax) yMax = v[1];
+					if(v[2] < zMin) zMin = v[2];
+					if(v[2] > zMax) zMax = v[2];
+				} 
+				else if(s[0].compareTo("vn")==0)
+				{
+					// Normal
+					float[] n = new float[3];
+					n[0] = Float.valueOf(s[1]).floatValue();
+					n[1] = Float.valueOf(s[2]).floatValue();
+					n[2] = Float.valueOf(s[3]).floatValue();
+					normals.add(n);
+				}
+				else if(s[0].compareTo("vt")==0)
+				{
+					// Texture
+					float[] t = new float[2];
+					t[0] = Float.valueOf(s[1]).floatValue();
+					t[1] = Float.valueOf(s[2]).floatValue();
+					texCoords.add(t);
+				}
+				else if(s[0].compareTo("f")==0)
+				{
+					// Indices
+					int[][] indices = new int[3][3];
+					
+					// For all vertices
+					int i=1;
+					while(i < s.length)
+					{	
+						// Get indices for vertex position, tex. coords., and normals
+						String[] ss = s[i].split("/");
+						int k=0;
+						while(k < ss.length)
+						{
+							if(ss[k].length()>0)
+								indices[i-1][k] = Integer.valueOf(ss[k]).intValue();
+							else
+							{
+								indices[i-1][k] = -1;
+								if(k == 1) hasTexCoords = false;
+								if(k == 2) hasNormals = false;
+							}
+							k++;
+						}
+						if(ss.length == 1)
+						{
+							hasTexCoords = false;
+							hasNormals = false;
+						}
+						i++;
+					}
+					faces.add(indices);
+				}
+				else if(s[0].length()>0 && s[0].charAt(0)!='#')
+				{
+                    // usemtl statements etc generate this
+					//System.err.print("Unknown token '".concat(line).concat("'\n"));
+				}
+			}
+
+			// Normalization
+			float xTrans = -(xMax+xMin)/2;
+			float yTrans = -(yMax+yMin)/2;
+			float zTrans = -(zMax+zMin)/2;
+			float xScale = 2/(xMax-xMin);
+			float yScale = 2/(yMax-yMin);
+			float zScale = 2/(zMax-zMin);
+			float s = yScale;
+			if(xScale < yScale) s = xScale;
+			if(zScale < s) s = zScale;
+			scale = s*scale;
+			
+			// Brute force approach to generate single index per vertex
+			// Expand arrays
+			int nFaces = faces.size();
+			float[] verticesFinal = new float[nFaces*9];
+			float[] normalsFinal = new float[nFaces*9];
+			float[] texCoordsFinal = new float[nFaces*6];
+			int[] indices = new int[nFaces*3];
+			
+			// For all faces
+			int vertexNr = 0;
+			for(int i=0; i<nFaces; i++)
+			{
+				// For all vertices
+				for(int j=0; j<3; j++)
+				{
+					// Copy positions, tex. coords., and normals to expanded arrays
+					// Note: we subtract one from the index because indexing in the obj
+					// file is 1-based, whereas our arrays are 0-based
+					verticesFinal[vertexNr*3] = vertices.get(faces.get(i)[j][0]-1)[0];
+					verticesFinal[vertexNr*3+1] = vertices.get(faces.get(i)[j][0]-1)[1];
+					verticesFinal[vertexNr*3+2] = vertices.get(faces.get(i)[j][0]-1)[2];
+					
+					verticesFinal[vertexNr*3] = scale*(verticesFinal[vertexNr*3]+xTrans);
+					verticesFinal[vertexNr*3+1] = scale*(verticesFinal[vertexNr*3+1]+yTrans);
+					verticesFinal[vertexNr*3+2] = scale*(verticesFinal[vertexNr*3+2]+zTrans);
+					
+					if(hasNormals)
+					{
+						normalsFinal[vertexNr*3] = normals.get(faces.get(i)[j][2]-1)[0];
+						normalsFinal[vertexNr*3+1] = normals.get(faces.get(i)[j][2]-1)[1];
+						normalsFinal[vertexNr*3+2] = normals.get(faces.get(i)[j][2]-1)[2];
+					} 
+					
+					if(hasTexCoords)
+					{
+						texCoordsFinal[vertexNr*2] = texCoords.get(faces.get(i)[j][1]-1)[0];
+						texCoordsFinal[vertexNr*2+1] = texCoords.get(faces.get(i)[j][1]-1)[1];
+					}
+					
+					indices[vertexNr] = vertexNr;
+					vertexNr++;
+				}
+				
+				if(!hasNormals)
+				{
+					Vector3f d0 = new Vector3f(
+						verticesFinal[(vertexNr-1)*3  ]-verticesFinal[(vertexNr-3)*3],
+						verticesFinal[(vertexNr-1)*3+1]-verticesFinal[(vertexNr-3)*3+1],
+						verticesFinal[(vertexNr-1)*3+2]-verticesFinal[(vertexNr-3)*3+2]);
+					Vector3f d1 = new Vector3f(
+						verticesFinal[(vertexNr-2)*3  ]-verticesFinal[(vertexNr-3)*3],
+						verticesFinal[(vertexNr-2)*3+1]-verticesFinal[(vertexNr-3)*3+1],
+						verticesFinal[(vertexNr-2)*3+2]-verticesFinal[(vertexNr-3)*3+2]);
+					Vector3f n = new Vector3f();
+					n.cross(d1,d0);
+					n.normalize();
+					for(int j=0; j<3; j++)
+					{
+						normalsFinal[(vertexNr-(j+1))*3]   = n.x;
+						normalsFinal[(vertexNr-(j+1))*3+1] = n.y;
+						normalsFinal[(vertexNr-(j+1))*3+2] = n.z;
+					}
+				}
+			}
+
+			reader.close();
+			return new Mesh(verticesFinal, normalsFinal, indices);
+		}
+	}
     
