@@ -369,6 +369,34 @@ where
     import org.junit.*;
     <common imports>
     public class UnitTests {
+        public static void assertEqualsX(float exp, float got) {
+            asserEquals(exp, got, 0.0001f);
+        }
+        public static void assertEqualsX(Vector3f exp, Vector3f got) {
+           asserEqualsX(exp.x, got.x);
+           asserEqualsX(exp.y, got.y);
+           asserEqualsX(exp.z, got.z);
+        }
+        public static void assertNotEqualsX(float notexp, float got) {
+            assertTrue(M.absf(notexp - got) > 0.0001f);
+        }
+        public static void assertNotEqualsX(Vector3f notexp, Vector3f got) {
+            assertTrue(
+            M.absf(notexp.x - got.x) > 0.0001f 
+            || M.absf(notexp.y - got.y) > 0.0001f 
+            || M.absf(notexp.z - got.z) > 0.0001f 
+            );
+        }
+        
+        @Test 
+        public void testEqX() {
+            assertEqualsX(0, 0.00005f);
+            assertNotEqualsX(0, 0.0002f);
+            
+            assertEqualsX(new Vector3f(), new Vector3f(0.00005f, 0.00005f, 0.00005f));
+            
+            assertNotEqualsX(new Vector3f(), new Vector3f(0.0001f, 0.00005f, 0.00005f));
+        }
         <unit tests>
     }
 They can be run with
@@ -4532,8 +4560,9 @@ where d is the dimensionality of the samples.
     public float[][] makeSamples(int n, int d);  
     [rt/Sampler.java]= 
     package rt;
-    public interface Sampler {
+    public class Sampler {
         <make samples>
+        <sampler methods>
     }
         
     [rt/SamplerFactory.java]= 
@@ -4542,7 +4571,50 @@ where d is the dimensionality of the samples.
     public interface SamplerFactory {
         public Sampler make();
     }
+<h3>Uniform Disk sampling</h3>
+    <sampler methods>+=
+    float[] sampleUnitDisk() {
+        float[] xi = makeSamples(1,2);
+        
+        return new float[] {
+            Math.cos(2 * M.PI * xi[1]) * M.sqrtf(xi[0]),
+            Math.sin(2 * M.PI * xi[1]) * M.sqrtf(xi[0])
+        };
+    }
     
+    <unit tests>+=
+    @Test 
+    void testDisk() {
+        float f[] = new RandomSampler().sampleUnitDisk();
+        assertEquals(2, f.length);
+        assertTrue(
+            f[1]*f[1]+f[0]*f[0]
+            <= 1
+        );
+    }
+<h3>Cosine distribution hemisphere sampling</h3>
+   <sampler methods>+=
+    Vector3f sampleCosDistributionHemisphere() {
+        float[] xi = makeSamples(1,2);
+        
+        return new Vector3f(
+            Math.cos(2 * M.PI * xi[1]) * M.sqrtf(xi[0]),
+            Math.sin(2 * M.PI * xi[1]) * M.sqrtf(xi[0]),
+            Math.sqrtf(1 - xi[0])
+        );
+    }
+    
+    <unit tests>+=
+    @Test 
+    void testSamHemi() {
+        Vector3f h = new RandomSampler().sampleCosDistributionHemisphere();
+        assertEqualsX(1, h.length());
+        
+        Vector3f h2 = new RandomSampler().sampleCosDistributionHemisphere();
+        assertEqualsX(1, h2.length());
+        
+        assertNotEqualsX(h, h2);
+    }
 <h3>OneSampler</h3>
 Returns always one sample at 0.5 in all dimensions.
     [rt/samplers/OneSampler.java]= 
@@ -4550,7 +4622,7 @@ Returns always one sample at 0.5 in all dimensions.
 
     <common imports>
 
-    public class OneSampler implements Sampler {        
+    public class OneSampler extends Sampler {        
         public float[][] makeSamples(int n, int d)
         {
             float[][] samples = new float[1][d];
@@ -4575,7 +4647,7 @@ Makes uniform random samples in the range [0,1].
     package rt.samplers;
 
     <common imports>
-    public class RandomSampler implements Sampler {
+    public class RandomSampler extends Sampler {
         Random random = new Random();
         public float[][] makeSamples(int n, int d)
         {
@@ -5234,6 +5306,12 @@ In the unlikely case that the normal and this vector happened to point in the sa
             return (float)Math.sqrt(f);
         }
         
+        public static float cosf(float f) {
+            return (float)Math.cos(f);
+        } 
+        public static float sinf(float f) {
+            return (float)Math.sin(f);
+        }
         public static float sqr(float f) {
             return f*f;
         }
