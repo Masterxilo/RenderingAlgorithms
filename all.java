@@ -99,7 +99,8 @@ For convenience, we provide the method t to construct the point o + t*d on the r
         Ray r = new Ray(x,x);
         x.set(0,0,0);
         assertEquals(new Vector3f(1,2,3), r.origin);
-        assertEquals(new Vector(2,4,6), r.t(2));
+        assertEquals(new Vector3f(2,4,6), r.t(1));
+        assertEquals(new Vector3f(3,6,9), r.t(2));
     }
 <h3>Scene Representation</h3>
     construct scene representation
@@ -211,6 +212,7 @@ We make sure that class names do not clash in our raytracer, so we can always im
     import rt.intersectables.DFNode.*;
     import rt.BSPNode.*;
     import java.awt.image.*;
+    import java.awt.Color;
     import java.util.concurrent.*;
     import javax.imageio.*;
 
@@ -317,7 +319,7 @@ The amount of tasks then computes as
             
             
     <wait for threads to end reporting progress>=
-    System.out.printf("Rendering scene %s (%d spp) with %s threads to file %s: \n", scene.getClass().getName(), scene.getSPP(), nThreads, scene.outputFilename);
+    System.out.printf("Rendering scene %s (%d spp) with %s threads to file %s: \n", scene.getClass().getName(), scene.getSPP(), nThreads, scene.getClass().toString());
     System.out.println("0%                                                50%                                           100%");
     System.out.println("|---------|---------|---------|---------|---------|---------|---------|---------|---------|--------|");
     executor.shutdown();
@@ -369,22 +371,38 @@ where
     import org.junit.*;
     <common imports>
     public class UnitTests {
+        public static void out(Object o) {
+            System.out.println(o);
+        }
+        public static void asserNotEquals(Object a, Object b) {
+            assertFalse(a.equals(b));
+        }
+        public static final float APPROX = 0.0001f;
         public static void assertEqualsX(float exp, float got) {
-            asserEquals(exp, got, 0.0001f);
+            if (M.absf(exp - got) > APPROX) {
+                out("assertEqualsX failed, expected "+exp+", got "+got);
+            }
+            assertEquals(exp, got, APPROX);
         }
         public static void assertEqualsX(Vector3f exp, Vector3f got) {
-           asserEqualsX(exp.x, got.x);
-           asserEqualsX(exp.y, got.y);
-           asserEqualsX(exp.z, got.z);
+           assertEqualsX(exp.x, got.x);
+           assertEqualsX(exp.y, got.y);
+           assertEqualsX(exp.z, got.z);
         }
         public static void assertNotEqualsX(float notexp, float got) {
-            assertTrue(M.absf(notexp - got) > 0.0001f);
+            assertTrue(M.absf(notexp - got) > APPROX);
         }
         public static void assertNotEqualsX(Vector3f notexp, Vector3f got) {
+            if (!(M.absf(notexp.x - got.x) > APPROX
+            || M.absf(notexp.y - got.y) > APPROX
+            || M.absf(notexp.z - got.z) > APPROX)) {
+                out("assertNotEqualsX failed, expected not "+notexp+", got "+got);
+            }
+            
             assertTrue(
-            M.absf(notexp.x - got.x) > 0.0001f 
-            || M.absf(notexp.y - got.y) > 0.0001f 
-            || M.absf(notexp.z - got.z) > 0.0001f 
+            M.absf(notexp.x - got.x) > APPROX
+            || M.absf(notexp.y - got.y) > APPROX
+            || M.absf(notexp.z - got.z) > APPROX
             );
         }
         
@@ -394,9 +412,14 @@ where
             assertNotEqualsX(0, 0.0002f);
             
             assertEqualsX(new Vector3f(), new Vector3f(0.00005f, 0.00005f, 0.00005f));
-            
-            assertNotEqualsX(new Vector3f(), new Vector3f(0.0001f, 0.00005f, 0.00005f));
+            assertEqualsX(new Vector3f(), new Vector3f(0.0001f, 0.00005f, 0.00005f));
+            assertNotEqualsX(new Vector3f(), new Vector3f(0.0002f, 0.00005f, 0.00005f));
         }
+        @Test 
+        public void testNotEq() {
+            assertNotEquals(true, false);
+        }
+        
         <unit tests>
     }
 They can be run with
@@ -481,8 +504,8 @@ The assumption is that pixel [i,j] is the square [i,i+1] x [j,j+1] in viewport c
     package rt.cameras;
     <common imports>
     public class FixedCamera implements Camera {
-        final Vector3f eye;
-        final Matrix4f viewportToWorld;
+        Vector3f eye;
+        Matrix4f viewportToWorld;
         
         FixedCamera() {}
         public FixedCamera(int width, int height)
@@ -512,7 +535,9 @@ The assumption is that pixel [i,j] is the square [i,i+1] x [j,j+1] in viewport c
         FixedCamera c = new FixedCamera(100,100);
         Ray r = c.makeWorldSpaceRay(0,0,new float[]{0,0});
         assertTrue(r.origin.equals(new Vector3f(0.f, 0.f, 3.0f)));
-        assertTrue(r.direction.equals(new Vector3f(-1.f, 1.f, -1.0f)));
+        
+        out("testFC "+r.direction);
+        assertEqualsX(r.direction, new Vector3f(-1.f, 1.f, -1.0f));
     }
 <h4>PinholeCamera</h4>
 A camera with a given position, look-at and up direction and view frustum 
@@ -575,7 +600,7 @@ Perspective projection matrix
     
     <unit tests>+=
     @Test
-    public void testFC() {
+    public void testPC() {
         PinholeCamera c = new PinholeCamera(
             new Vector3f(0,0,1),
             new Vector3f(), 
@@ -585,7 +610,11 @@ Perspective projection matrix
             100,100);
         Ray r = c.makeWorldSpaceRay(0,0,new float[]{0,0});
         assertTrue(r.origin.equals(new Vector3f(0,0,1)));
-        assertTrue(r.direction.equals(new Vector3f(-1.f, 1.f, -1.0f)));
+        
+        
+        out("testPC "+r.direction);
+        
+        assertEqualsX(r.direction, new Vector3f(-1.f, 1.f, -1.0f));
     }
 <h2>Ray-Object Intersection</h2>
 This section is concerned with the statement 
@@ -646,7 +675,9 @@ the normal is the normalized gradient at the intersection point.
 A hit record is thus constructed as
     <hit record datastructure>+=
     public HitRecord(Ray r, float tt, Intersectable i, Vector3f n) {
-        assert r != null && i != null && n != null;
+        assert r != null : "ray must be non null";
+        assert i != null : "intersectable must be non null";
+        assert n != null : "normal must be non null";
         ray = r; t = tt; intersectable = i; 
         normal = n;
     }
@@ -739,7 +770,7 @@ the intervals along the ray where the ray is either inside or outside the object
 Each interval has two 
 boundaries, a start and an end, where the ray enters and leaves the solid. 
     <get interval boundaries>=
-    abstract ArrayList<IntervalBoundary> getIntervalBoundaries(Ray r);
+    public abstract ArrayList<IntervalBoundary> getIntervalBoundaries(Ray r);
 
 The returned boundaries of intersection intervals have to be sorted by increasing t.
     <natural order of interval boundaries>=
@@ -749,12 +780,12 @@ The returned boundaries of intersection intervals have to be sorted by increasin
 
 An interval boundary is characterized as follows
     <interval boundary class>=
-    class IntervalBoundary implements Comparable<IntervalBoundary>
+    public class IntervalBoundary implements Comparable<IntervalBoundary>
     {        
         <t value of csg intersection>
-        BoundaryType type;        
-        HitRecord hitRecord;    
-        BelongsTo belongsTo;
+        public BoundaryType type;        
+        public HitRecord hitRecord;    
+        public BelongsTo belongsTo;
         
         public IntervalBoundary() {}
         public IntervalBoundary(float t) {this.t = t;}
@@ -780,7 +811,7 @@ These values indicate that the volume is never left.
 In this case, the hitRecord attribute of this IntervalBoundary must be null.
 t should also always be equal to hitRecord.t if hitRecord is set.
     <t value of csg intersection>=
-    float t;    
+    public float t;    
 
 CSGSolid is the base class of all CSG objects. 
     [rt/intersectables/CSGSolid.java]= 
@@ -826,7 +857,7 @@ It does pretty much the same as Instance does for any Intersectables in general.
             <establish instance parameters>
         }
         
-        ArrayList<IntervalBoundary> getIntervalBoundaries(Ray r_) {
+        public ArrayList<IntervalBoundary> getIntervalBoundaries(Ray r_) {
             Ray r = Instance.transformRay(r_, ti);
             
             // Intersect
@@ -1247,7 +1278,7 @@ The method thus boils down to
     <unit tests>+=
     @Test
     public void testCSGXYPlane() {
-        CSGXYPlaneTest p = new CSGXYPlaneTest();
+        CSGXYPlane p = new CSGXYPlane();
         assertEquals(0, p.getIntervalBoundaries(
             new Ray(new Vector3f(0,0,1), new Vector3f(1,0,0))
         ).size());
@@ -1255,7 +1286,9 @@ The method thus boils down to
         List<IntervalBoundary> a = p.getIntervalBoundaries(
             new Ray(new Vector3f(0,0,-1), new Vector3f(1,0,0))
         );
+        
         assertEquals(BoundaryType.START, a.get(0).type);
+        
         assertEquals(Float.NEGATIVE_INFINITY, a.get(0).t);
         
         assertEquals(2, a.size());
@@ -1462,7 +1495,7 @@ The following objects are pre combined CSG objects.
         @Override
         public Iterator<Intersectable> iterator() {return root.iterator();}
         
-        ArrayList<IntervalBoundary> getIntervalBoundaries(Ray r)
+        public ArrayList<IntervalBoundary> getIntervalBoundaries(Ray r)
         {
             return root.getIntervalBoundaries(r);
         }
@@ -1563,7 +1596,7 @@ Thus, the plane with normal 0,0,1 and d = -2 is the plane z = 2.
         assertTrue(r != null);
         assertEquals(2.f, r.t, 0.001f);
 
-        System.out.println(r.normal);
+        System.out.println("testCSGPlane" + r.normal);
         assertTrue(n.equals(r.normal));
 
     }
@@ -1584,6 +1617,16 @@ You should see nothing on this image, because the plane is exactly at the camera
     }
     <test scenes>+=
     new CSGPlaneTest(),
+    
+    <unit tests>+=
+    @Test 
+    public void testCSGPlaneTest() {
+        assertEquals(
+            ImageReader.read("output/rt.testscenes.CSGPlaneTest.png"), 
+            ImageReader.read("testimages/rt.testscenes.CSGPlaneTest 1SPP.png")
+        );
+    }
+    
 You should see an infinite plane (in debug output) facing you in this test.
 <img src="output/rt.testscenes.CSGPlaneTest2.png"></img>    
     [rt/testscenes/CSGPlaneTest2.java]= 
@@ -1598,6 +1641,16 @@ You should see an infinite plane (in debug output) facing you in this test.
     }
     <test scenes>+=
     new CSGPlaneTest2(),
+    
+        <unit tests>+=
+    @Test 
+    public void testCSGPlaneTest2() {
+        assertEquals(
+            ImageReader.read("output/rt.testscenes.CSGPlaneTest2.png"), 
+            ImageReader.read("testimages/rt.testscenes.CSGPlaneTest2 1SPP.png")
+        );
+    }
+    
     
 <img src="output/rt.testscenes.CSGPlaneTest3.png"></img>    
     [rt/testscenes/CSGPlaneTest3.java]= 
@@ -1800,7 +1853,7 @@ surfaces as well.
         float totalS = 0.f;
         while (canHitContainingSphere(mr)) {
             float s = <march step size>;     totalS += s;
-            mr.origin = mr.t(s);
+            mr.origin.set(mr.t(s));
             
             <no hit>
             <process hit>
@@ -2084,16 +2137,24 @@ we define the transformation of ray and result as static functions.
 r_ denotes the original ray.
     <transform ray>=
     public static Ray transformRay(Ray r_, Matrix4f ti) {
-        Ray r = new Ray(r_.origin, r_.direction);
+        Ray r = new Ray(
+            M.transformVectorAsPoint(ti, r_.origin),
+            
+            r_.direction);
         ti.transform(r.direction);
-        r.origin = M.transformVectorAsPoint(ti, r.origin);
         return r;
     }
         
     <transform hit record>=
     public static HitRecord transformHitRecord(HitRecord h, Ray r_, Matrix4f t, Matrix4f tit) {
-        tit.transform(h.normal);    
-        h.ray = r_;
+        Vector3f n = new Vector3f(h.normal);
+        tit.transform(n);
+        HitRecord h2 = new HitRecord(
+            r_,     // Use original ray
+            h.t, // time stays
+            h.intersectable, // TODO should this instance become the hit object?
+            n
+        );
         return h;
     }
     
@@ -2133,7 +2194,6 @@ r_ denotes the original ray.
         Vector3f n = new Vector3f(0,1,0);
         CSGXYPlane p_ = new CSGXYPlane();
         
-            
         Matrix4f m = new Matrix4f(); m.setIdentity();
         m.rotX(3*M.PI/2);
         
@@ -2147,7 +2207,7 @@ r_ denotes the original ray.
         assertTrue(r != null);
         assertEquals(1.f, r.t, 0.001f);
 
-        System.out.println("i"+r.normal);
+        System.out.println("i "+r.normal);
         assertEquals(0.f, r.normal.x, 0.001f);
         assertEquals(1.f, r.normal.y, 0.001f);
         assertEquals(0.f, r.normal.z, 0.001f);
@@ -2180,6 +2240,15 @@ it looks like they intersect a bit because of perspective projection!
     }
     <test scenes>+=
     new InstancingTest(),
+    
+    <unit tests>+=
+    @Test 
+    public void testInstancingTest() {
+        assertEquals(
+            ImageReader.read("output/rt.testscenes.InstancingTest.png"), 
+            ImageReader.read("testimages/rt.testscenes.InstancingTest 1SPP.png")
+        );
+    }
 
 <h3>Mesh</h3>
 A triangle mesh is a list of triangles.
@@ -3024,7 +3093,7 @@ A node then either stores two child nodes or a list of primitives when it is a l
         @Override
         public Iterator<Intersectable> iterator() {
             return isLeaf() ? 
-                Collections.<Itersectable>emptyList() :
+                Collections.<Intersectable>emptyList().iterator() :
                 Arrays.<Intersectable>asList(below, above).iterator();
         }
           
@@ -3182,12 +3251,17 @@ In this implementation, we work with RGB colors.
     public class Spectrum {
         public float r, g, b;
 
+        public String toString() {return "("+r +" "+g+" "+b+")";}
         public Spectrum()
         {
             r = 0.f;
             g = 0.f;
             b = 0.f;
         }
+        
+        public boolean equals(Spectrum s) {
+            return s.r == r && s.g == g && b == s.b;
+            }
 
         public Spectrum(float r, float g, float b)
         {
@@ -3507,13 +3581,26 @@ which give parameters and algorithms for 'shading'
     @Test
     public void testMeshMaterial2() {
         Mesh mesh = ObjReader.read("obj/teapot.obj", 1.f);
-        Instance instance = new Instance(mesh, new Matrix4f());
+        Matrix4f m = new Matrix4f();
+        m.setIdentity();
+        Instance instance = new Instance(mesh, m);
         
         Material mat = new Diffuse();
         instance.setMaterial(mat);
         
         for (Intersectable i : mesh)
             assertEquals(mat, i.material);
+    }
+    
+    @Test
+    public void testMeshMaterial3() {
+        try {
+            Instance instance = new Instance(new CSGXYPlane(), new Matrix4f());
+        }
+        catch (SingularMatrixException e) {
+            return;
+        }
+        assertTrue(false);
     }
         
     [rt/Material.java]= 
@@ -3721,7 +3808,7 @@ a grid pattern.
             new HitRecord(
                 new Ray(new Vector3f(),new Vector3f(0.2f,0.2f,0.2f)), 
                 1.f, 
-                null,
+                new CSGXYPlane(),
                 new Vector3f()
                 ), null, 0);
         
@@ -3731,7 +3818,7 @@ a grid pattern.
             new HitRecord(
                 new Ray(new Vector3f(),new Vector3f(0.05f,0.2f,0.2f)), 
                 1.f, 
-                null,
+                new CSGXYPlane(),
                 new Vector3f()
                 ), null, 0);
         
@@ -3753,7 +3840,7 @@ a grid pattern.
             new HitRecord(
                 new Ray(new Vector3f(),new Vector3f(0.2f,0.2f,0.2f)), 
                 1.f, 
-                null,
+                new CSGXYPlane(),
                 new Vector3f()
                 ), null);
         
@@ -3763,7 +3850,7 @@ a grid pattern.
             new HitRecord(
                 new Ray(new Vector3f(),new Vector3f(0.05f,0.2f,0.2f)), 
                 1.f, 
-                null,
+                new CSGXYPlane(),
                 new Vector3f()
                 ), null);
         
@@ -4557,10 +4644,11 @@ implemented.
 makeSamples makes an array of samples. The samples need to lie in the range [0,1]^d,
 where d is the dimensionality of the samples.
     <make samples>=
-    public float[][] makeSamples(int n, int d);  
+    public abstract float[][] makeSamples(int n, int d);  
     [rt/Sampler.java]= 
     package rt;
-    public class Sampler {
+    <common imports>
+    public abstract class Sampler {
         <make samples>
         <sampler methods>
     }
@@ -4573,18 +4661,18 @@ where d is the dimensionality of the samples.
     }
 <h3>Uniform Disk sampling</h3>
     <sampler methods>+=
-    float[] sampleUnitDisk() {
-        float[] xi = makeSamples(1,2);
+     public float[] sampleUnitDisk() {
+        float[] xi = makeSamples(1,2)[0];
         
         return new float[] {
-            Math.cos(2 * M.PI * xi[1]) * M.sqrtf(xi[0]),
-            Math.sin(2 * M.PI * xi[1]) * M.sqrtf(xi[0])
+            M.cosf(2 * M.PI * xi[1]) * M.sqrtf(xi[0]),
+            M.sinf(2 * M.PI * xi[1]) * M.sqrtf(xi[0])
         };
     }
     
     <unit tests>+=
     @Test 
-    void testDisk() {
+    public void testDisk() {
         float f[] = new RandomSampler().sampleUnitDisk();
         assertEquals(2, f.length);
         assertTrue(
@@ -4594,19 +4682,19 @@ where d is the dimensionality of the samples.
     }
 <h3>Cosine distribution hemisphere sampling</h3>
    <sampler methods>+=
-    Vector3f sampleCosDistributionHemisphere() {
-        float[] xi = makeSamples(1,2);
+    public Vector3f sampleCosDistributionHemisphere() {
+        float[] xi = makeSamples(1,2)[0];
         
         return new Vector3f(
-            Math.cos(2 * M.PI * xi[1]) * M.sqrtf(xi[0]),
-            Math.sin(2 * M.PI * xi[1]) * M.sqrtf(xi[0]),
-            Math.sqrtf(1 - xi[0])
+            M.cosf(2 * M.PI * xi[1]) * M.sqrtf(xi[0]),
+            M.sinf(2 * M.PI * xi[1]) * M.sqrtf(xi[0]),
+            M.sqrtf(1 - xi[0])
         );
     }
     
     <unit tests>+=
     @Test 
-    void testSamHemi() {
+    public void testSamHemi() {
         Vector3f h = new RandomSampler().sampleCosDistributionHemisphere();
         assertEqualsX(1, h.length());
         
@@ -5312,6 +5400,9 @@ In the unlikely case that the normal and this vector happened to point in the sa
         public static float sinf(float f) {
             return (float)Math.sin(f);
         }
+        public static float absf(float f) {
+            return (float)Math.abs(f);
+        }
         public static float sqr(float f) {
             return f*f;
         }
@@ -5423,11 +5514,23 @@ A utility class to help us run benchmarks.
         public Spectrum lookup(float x, float y) {
             int c = cp.getInterpolatedRGBPixel(x*cp.getWidth(),y*cp.getHeight());
             Color cc = new Color(c, false);
-            return new Spectrum();
+            return new Spectrum(cc.getRed()/255.f, cc.getGreen()/255.f, cc.getBlue()/255.f);
         }
     }
     
     <unit tests>+=
+    @Test 
+    public void testTexture() {
+        BufferedImage bufferedImage = new BufferedImage(1, 1, BufferedImage.TYPE_INT_RGB);
+        bufferedImage.setRGB(0,0,Color.WHITE.getRGB());
+        
+        Texture t = new Texture(bufferedImage);
+        assertEquals(
+        new Spectrum(1,1,1),
+        t.lookup(0,0)
+        );
+    }
+    
     @Test 
     public void testTexture() {
         BufferedImage bufferedImage = new BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB);
@@ -5436,7 +5539,29 @@ A utility class to help us run benchmarks.
         bufferedImage.setRGB(1,0,Color.RED.getRGB());
         bufferedImage.setRGB(1,1,Color.RED.getRGB());
         
-        assertTrue();
+        Texture t = new Texture(bufferedImage);
+        
+        System.out.println("testTexture " + t.lookup(0,0));
+        assertEquals(
+        new Spectrum(1,0,0),
+        t.lookup(0,0)
+        );
+    }
+    @Test 
+    public void testTexture2() {
+        BufferedImage bufferedImage = new BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB);
+        bufferedImage.setRGB(0,0,Color.RED.getRGB());
+        bufferedImage.setRGB(0,1,Color.RED.getRGB());
+        bufferedImage.setRGB(1,0,Color.RED.getRGB());
+        bufferedImage.setRGB(1,1,Color.BLUE.getRGB());
+        
+        Texture t = new Texture(bufferedImage);
+        
+        out("testTexture2 " +  t.lookup(2,2));
+        assertEquals(
+        new Spectrum(0,0,1),
+        t.lookup(2,2)
+        );
     }
 <h2>Appendix: Image Reader</h2>
     [rt/ImageReader.java]=
@@ -5460,20 +5585,39 @@ A utility class to help us run benchmarks.
             } else {
                 imagesEqual = false;
             }
+            return imagesEqual;
         }
+        
+        public static BufferedImage read(String fn) {
+            try {
+                ImageIO.read(new File(fn));
+            } catch (Exception e) {
+                System.out.println("fatl, cannot load "+fn);
+                System.exit(1);
+            }
+            return null;
+        }
+    }
+    <unit tests>+=
+    public static void assertEquals(BufferedImage i, BufferedImage i2) {
+        assertTrue(ImageReader.equals(i, i2));
     }
     
     <unit tests>+=
     @Test 
     public void testImageReaderEquals() {
-        BufferedImage in = ImageIO.read(new File("testimages/test.png"));
-        assertTrue(ImageReader.equals(in, in));
+        BufferedImage in = ImageReader.read("testimages/test.png");
+        assertEquals(in, in);
         
-        BufferedImage in2 = ImageIO.read(new File("testimages/test.png"));
-        assertTrue(ImageReader.equals(in, in2));
+        BufferedImage in2 = ImageReader.read("testimages/test.png");
+        assertEquals(in, in2);
         
-        BufferedImage in3 = ImageIO.read(new File("testimages/test2.png"));
+        BufferedImage in3 =  ImageReader.read("testimages/test2.png");
         assertFalse(ImageReader.equals(in, in3));
+    }
+    @Test 
+    public void testImageReaderEquals2() {
+        assertEquals(ImageReader.read("testimages/rt.testscenes.InstancingTest 1SPP.png"), ImageReader.read("testimages/rt.testscenes.InstancingTest 1SPP.png"));
     }
 <h2>Appendix: Obj Reader</h2>
 The only external scene and data description format that we currently support are obj files.
