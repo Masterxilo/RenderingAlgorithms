@@ -82,6 +82,10 @@ A ray is represented by an origin and a direction (need not be a unit vector) in
             <copy origin and direction>
         }
         <ray methods>
+        
+        public String toString() {
+            return "Ray["+origin+","+direction+"]";
+        }
     }
 We always need to make defensive copies of mutable arguments supplied to constructors if we want to
 enforce encapsulation. The javax.vecmath vector objects are all mutable.
@@ -154,7 +158,7 @@ implement the loop
     for each pixel
 We partition the image into blocks, called RenderTasks, that are then submitted to
     <number of threads>=
-    Runtime.getRuntime().availableProcessors()
+    Runtime.getRuntime().availableProcessors()-1
 worker threads. 
 We call the final image a Film and the component responsible for intersection testing and
 computing the color value (shading, illumination) at a point is called an Integrator,
@@ -380,6 +384,27 @@ where
             assertFalse(a.equals(b));
         }
         public static final float APPROX = 0.0001f;
+        // We use this approximation, because it is empirically the best we can hope for (?)
+        // no need to go down to 0.001f?
+        
+        public static Ray validRay() {
+            return new Ray(new Vector3f(), validNormal());
+        }
+        public static Intersectable validIntersectable() {
+            return new CSGUnitSphere();
+        }
+        public static Vector3f validNormal() {
+            return new Vector3f(1,0,0);
+        }
+        public static HitRecord validHitRecord() {
+            return new HitRecord(
+                validRay(), 1.f, validIntersectable(), validNormal());
+        }
+        public static Matrix4f validMatrix() {
+            Matrix4f m = new Matrix4f();
+            m.setIdentity(); return m;
+            }
+        
         public static void assertEqualsX(float exp, float got) {
             if (M.absf(exp - got) > APPROX) {
                 out("assertEqualsX failed, expected "+exp+", got "+got);
@@ -683,15 +708,79 @@ A hit record is thus constructed as
         assert i != null : "intersectable must be non null";
         assert n != null : "normal must be non null";
         ray = r; t = tt; intersectable = i; 
-        assert M.isApprox(1.f, n.length()) : "normal must be unit vector";
+        assert M.isApprox(1.f, n.length()) : "normal "+n+" must be unit vector, len "+n.length();
         normal = n;
     }
     
-     <math utilities>+=
+    <math utilities>+=
     public static boolean isApprox(float exp, float got) {
         return M.absf(exp-got) <= UnitTests.APPROX;
     }
-
+    
+    <unit tests>+=
+    @Test 
+    public void testHitRecord2() {
+        try {
+        HitRecord r = new HitRecord(
+            validRay(),
+            1.f,
+            new CSGUnitSphere(),
+            new Vector3f(Float.NaN,Float.NaN,Float.NaN)
+        );
+        } catch (AssertionError e) {return;}
+        assert false;
+    }
+    // non-unit normals:
+    @Test 
+    public void testHitRecord3() {
+        try {
+        HitRecord r = new HitRecord(
+            validRay(),
+            1.f,
+            new CSGUnitSphere(),
+            new Vector3f()
+        );
+        } catch (AssertionError e) {return;}
+        assert false;
+    }
+    @Test 
+    public void testHitRecord4() {
+        try {
+        HitRecord r = new HitRecord(
+            validRay(),
+            1.f,
+            new CSGUnitSphere(),
+            new Vector3f(0.61025363f, -0.35719824f, -0.4082482f) // len < 1 // 0.81649655
+        );
+        } catch (AssertionError e) {return;}
+        assert false;
+    }
+    @Test 
+    public void testHitRecord5() {
+        try {
+        HitRecord r = new HitRecord(
+            validRay(),
+            1.f,
+            new CSGUnitSphere(),
+            new Vector3f(-0.9366242f, -1.3377322f, 1.1546463f) // len > 1
+        );
+        } catch (AssertionError e) {return;}
+        assert false;
+    }
+    
+    @Test 
+    public void testHitRecord6() {
+        try {
+        HitRecord r = new HitRecord(
+            validRay(),
+            1.f,
+            new CSGUnitSphere(),
+            new Vector3f(0.33787248f, -1.2864125f, 0.09360921f) // len = 1.3333333
+        );
+        } catch (AssertionError e) {return;}
+        assert false;
+    }
+    
 <h3>Intersectables</h3>
 An Intersectable is an object with a surface that supports ray-surface intersection.
 HitRecord intersect(Ray r) determines whether r hits this surface and if so 
@@ -809,7 +898,7 @@ An interval boundary is characterized as follows
     public void testIntervalBoundary() {
         IntervalBoundary i = new IntervalBoundary(1.f, BoundaryType.START);
         assertEquals(BoundaryType.START , i.type);
-        assertEquals(1.f, i.t());
+        assertEqualsX(1.f, i.t());
         
         HitRecord h;
         i = new IntervalBoundary(
@@ -820,7 +909,7 @@ An interval boundary is characterized as follows
                 new Vector3f()
             ), BoundaryType.END);
         assertEquals(BoundaryType.END, i.type);
-        assertEquals(2.f, i.t());
+        assertEqualsX(2.f, i.t());
         assertTrue(i.hitRecord == h);
     }
     
@@ -1328,7 +1417,7 @@ The method thus boils down to
         );
         
         assertEquals(BoundaryType.START, a.get(0).type);
-        assertEquals(Float.NEGATIVE_INFINITY, a.get(0).t());
+        assertTrue(Float.NEGATIVE_INFINITY == a.get(0).t());
         assertEquals(2, a.size());
     }
 
@@ -1611,6 +1700,14 @@ Mathematically speaking a ball.
     }
     <test scenes>+=
     new SphereTest(),
+    <unit tests>+=
+    @Test 
+    public void testSphereTest() {
+        assertImgEquals(
+            "output/rt.testscenes.SphereTest.png", 
+            "testimages/rt.testscenes.SphereTest.png"
+        );
+    }
             
 <h5>CSGPlane</h5>    
 A plane for CSG operations. 
@@ -2223,11 +2320,15 @@ we define the transformation of ray and result as static functions.
 r_ denotes the original ray.
     <transform ray>=
     public static Ray transformRay(Ray r_, Matrix4f ti) {
+        Vector3f o = new Vector3f(r_.origin), d = new Vector3f(r_.direction);
         Ray r = new Ray(
             M.transformVectorAsPoint(ti, r_.origin),
             
             r_.direction);
         ti.transform(r.direction);
+        
+        assert r_.origin.equals(o) : "origin changed";
+        assert r_.direction.equals(d) : "direction changed";
         return r;
     }
         
@@ -2241,7 +2342,18 @@ r_ denotes the original ray.
             h.intersectable, // TODO should this instance become the hit object?
             n
         );
-        return h;
+        
+        return h2; // not h!
+    }
+    
+    <unit tests>+=
+    @Test
+    public void testThr() {
+        HitRecord h = validHitRecord();
+        Ray r = validRay();
+        HitRecord h2 = Instance.transformHitRecord(h, r, validMatrix(), validMatrix());
+        assertFalse(h == h2);
+        assertEquals(r, h2.ray);
     }
     
     <instance transformations>=
@@ -2294,6 +2406,9 @@ r_ denotes the original ray.
         assertTrue(r != null);
         assertEquals(1.f, r.t, 0.001f);
         assertEquals(mr, r.ray);
+        assertEquals(new Vector3f(0,1,0), r.ray.origin);
+        assertEquals(new Vector3f(0,-1,0), r.ray.direction);
+
 
         System.out.println("i "+r.normal);
         assertEquals(0.f, r.normal.x, 0.001f);
@@ -2622,7 +2737,8 @@ gives us smoother shading than just using the triangle plane's normal n directly
         n0.scale(1-s-t); 
         n1.scale(s);
         n2.scale(t);
-        n = n0; n.add(n1); n.add(n2); n.normalize();
+        n = n0; n.add(n1); n.add(n2); 
+        n.normalize();
        
 where       
     <extract normals>=
@@ -2753,16 +2869,6 @@ Then we can output the hit-record.
         }
 
     }    
-    <test scenes>+=
-    new TriangleTest3(),
-    <unit tests>+=
-    @Test 
-    public void testTriangleTest3() {
-        assertImgEquals(
-            "output/rt.testscenes.TriangleTest3.png", 
-            "testimages/rt.testscenes.TriangleTest3 1SPP.png"
-        );
-    }
     
 <h4>Mesh Primitives</h4>
 We provide some meshes that are constructed computationally (procedurally) 
@@ -5827,7 +5933,7 @@ A utility class to help us run benchmarks.
     }
     @Test 
     public void testImageReaderEquals2() {
-        assertImgEquals(ImageReader.read("testimages/rt.testscenes.InstancingTest 1SPP.png"), ImageReader.read("testimages/rt.testscenes.InstancingTest 1SPP.png"));
+        assertImgEquals(ImageReader.read("testimages/rt.testscenes.InstancingTest.png"), ImageReader.read("testimages/rt.testscenes.InstancingTest.png"));
     }
 <h2>Appendix: Obj Reader</h2>
 The only external scene and data description format that we currently support are obj files.

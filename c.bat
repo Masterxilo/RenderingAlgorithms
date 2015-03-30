@@ -31,7 +31,7 @@ goto end
 ::if ERRORLEVEL 0 (
 ::if "%ERRORLEVEL%"=="0" (
 mkdir output
-
+del /F /Q output\*
 :: Main, create output
 
 echo ====================================================
