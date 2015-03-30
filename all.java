@@ -264,9 +264,9 @@ that are defined along the way.
         
         public RenderTask(Scene scene, int left, int right, int bottom, int top) 
         {            
-            assert scene != null;
+            assert scene != null : "scene may not be null";
             this.scene = scene;
-            assert left < right && top < bottom;
+            assert left < right && bottom < top : "wicked boundaries "+left+" "+right+" "+bottom+" "+top;
             this.left = left; this.right = right; this.bottom = bottom; this.top = top;
 
             <create sampler and integrator>
@@ -535,11 +535,12 @@ The assumption is that pixel [i,j] is the square [i,i+1] x [j,j+1] in viewport c
     @Test
     public void testFC() {
         FixedCamera c = new FixedCamera(100,100);
+        /* 0,0 is the lower left corner*/
         Ray r = c.makeWorldSpaceRay(0,0,new float[]{0,0});
         assertTrue(r.origin.equals(new Vector3f(0.f, 0.f, 3.0f)));
         
         out("testFC "+r.direction);
-        assertEqualsX(r.direction, new Vector3f(-1.f, 1.f, -1.0f));
+        assertEqualsX(new Vector3f(-1.f, -1.f, -1.0f), r.direction);
     }
 <h4>PinholeCamera</h4>
 A camera with a given position, look-at and up direction and view frustum 
@@ -607,16 +608,17 @@ Perspective projection matrix
             new Vector3f(0,0,1),
             new Vector3f(), 
             <up vector>,
-            (float)Math.toDegrees(Math.atan(1/2.f)*2),
+            (float)Math.toDegrees(Math.atan(1)*2),
             1,
             100,100);
+        /* 0,0 is the lower left corner*/
         Ray r = c.makeWorldSpaceRay(0,0,new float[]{0,0});
         assertTrue(r.origin.equals(new Vector3f(0,0,1)));
         
         
         out("testPC "+r.direction);
         
-        assertEqualsX(r.direction, new Vector3f(-1.f, 1.f, -1.0f));
+        assertEqualsX(new Vector3f(-1.f, -1.f, -1.0f), r.direction);
     }
 <h2>Ray-Object Intersection</h2>
 This section is concerned with the statement 
@@ -1380,6 +1382,14 @@ The method thus boils down to
     }
     <test scenes>+=
     new UnitSphereTest(),
+    <unit tests>+=
+    @Test 
+    public void testUnitSphereTest() {
+        assertImgEquals(
+            "output/rt.testscenes.UnitSphereTest.png", 
+            "testimages/rt.testscenes.UnitSphereTest 1SPP.png"
+        );
+    }
     
     <unit tests>+=
     @Test
@@ -1448,6 +1458,14 @@ The cone represents a solid cone shaped volume, defined by
     }
     <test scenes>+=
     new ConeTest(),
+    <unit tests>+=
+    @Test 
+    public void testConeTest() {
+        assertImgEquals(
+            ImageReader.read("output/rt.testscenes.ConeTest.png"), 
+            ImageReader.read("testimages/rt.testscenes.ConeTest 1SPP.png")
+        );
+    }
     
 <img src="output/rt.testscenes.ConeNormalTest.png"></img>
     [rt/testscenes/ConeNormalTest.java]= 
@@ -1461,6 +1479,14 @@ The cone represents a solid cone shaped volume, defined by
     }    
     <test scenes>+=
     new ConeNormalTest(),
+    <unit tests>+=
+    @Test 
+    public void testConeNormalTest() {
+        assertImgEquals(
+            ImageReader.read("output/rt.testscenes.ConeNormalTest.png"), 
+            ImageReader.read("testimages/rt.testscenes.ConeNormalTest 1SPP.png")
+        );
+    }
         
 <h5>Cylinder</h5>
     <cylinder definition>=
@@ -1518,6 +1544,14 @@ giving
     }
     <test scenes>+=
     new CylinderTest(),
+    <unit tests>+=
+    @Test 
+    public void testCylinderTest() {
+        assertImgEquals(
+            "output/rt.testscenes.CylinderTest.png", 
+            "testimages/rt.testscenes.CylinderTest 1SPP.png"
+        );
+    }
 
 <h4>Compound CSG Objects</h4>
 The following objects are pre combined CSG objects.
@@ -2072,6 +2106,14 @@ Here is the difference between standard minimum/csg subtraction:
     }
     <test scenes>+=
     new DFTestCSG(),
+    <unit tests>+=
+    @Test 
+    public void testDFTestCSG() {
+        assertImgEquals(
+            "output/rt.testscenes.DFTestCSG.png", 
+            "testimages/rt.testscenes.DFTestCSG 1SPP.png"
+        );
+    }
 and SMOOTH_SUBTRACT of two spheres:
 <img src="output/rt.testscenes.DFTest.png"></img>    
     [rt/testscenes/DFTest.java]= 
@@ -2090,6 +2132,14 @@ and SMOOTH_SUBTRACT of two spheres:
     }
     <test scenes>+=
     new DFTest(),
+    <unit tests>+=
+    @Test 
+    public void testDFTest() {
+        assertImgEquals(
+            "output/rt.testscenes.DFTest.png", 
+            "testimages/rt.testscenes.DFTest 1SPP.png"
+        );
+    }
     
 In this scene the second sphere is squashed along the z axis, which points to the left
 since we are watching from 3,0,0.
@@ -2239,9 +2289,11 @@ r_ denotes the original ray.
         HitRecord r = p.intersect(new Ray(new Vector3f(0,1,0), new Vector3f(0,0,1)));
         assertTrue(r == null);
 
-        r = p.intersect(new Ray(new Vector3f(0,1,0), new Vector3f(0,-1,0)));
+        Ray mr;
+        r = p.intersect(mr = new Ray(new Vector3f(0,1,0), new Vector3f(0,-1,0)));
         assertTrue(r != null);
         assertEquals(1.f, r.t, 0.001f);
+        assertEquals(mr, r.ray);
 
         System.out.println("i "+r.normal);
         assertEquals(0.f, r.normal.x, 0.001f);
@@ -2276,13 +2328,12 @@ it looks like they intersect a bit because of perspective projection!
     }
     <test scenes>+=
     new InstancingTest(),
-    
     <unit tests>+=
     @Test 
     public void testInstancingTest() {
-        assertEquals(
-            ImageReader.read("output/rt.testscenes.InstancingTest.png"), 
-            ImageReader.read("testimages/rt.testscenes.InstancingTest 1SPP.png")
+        assertImgEquals(
+            "output/rt.testscenes.InstancingTest.png", 
+            "testimages/rt.testscenes.InstancingTest.png"
         );
     }
 
@@ -2374,6 +2425,14 @@ Test scene for rendering triangle meshes.
     ObjReader.read("obj/teapot.obj", 0.95f)
     <test scenes>+=
     new TeapotTest(),
+    <unit tests>+=
+    @Test 
+    public void testTeapotTest() {
+        assertImgEquals(
+            "output/rt.testscenes.TeapotTest.png", 
+            "testimages/rt.testscenes.TeapotTest 1SPP.png"
+        );
+    }
     
 <img src="output/rt.testscenes.TeapotTest2.png"></img>    
     [rt/testscenes/TeapotTest2.java]= 
@@ -2390,6 +2449,14 @@ Test scene for rendering triangle meshes.
     }
     <test scenes>+=
     new TeapotTest2(),
+    <unit tests>+=
+    @Test 
+    public void testTeapotTest2() {
+        assertImgEquals(
+            "output/rt.testscenes.TeapotTest2.png", 
+            "testimages/rt.testscenes.TeapotTest2 1SPP.png"
+        );
+    }
   
 <img src="output/rt.testscenes.InstancingTeapots2.png"></img>    
     [rt/testscenes/InstancingTeapots2.java]= 
@@ -2607,6 +2674,14 @@ Then we can output the hit-record.
     }
     <test scenes>+=
     new TriangleTest(),
+    <unit tests>+=
+    @Test 
+    public void testTriangleTest() {
+        assertImgEquals(
+            "output/rt.testscenes.TriangleTest.png", 
+            "testimages/rt.testscenes.TriangleTest 1SPP.png"
+        );
+    }
 <img src="output/rt.testscenes.TriangleTest2.png"></img>    
     [rt/testscenes/TriangleTest2.java]= 
     package rt.testscenes;
@@ -2655,6 +2730,14 @@ Then we can output the hit-record.
     }    
     <test scenes>+=
     new TriangleTest2(),
+    <unit tests>+=
+    @Test 
+    public void testTriangleTest2() {
+        assertImgEquals(
+            "output/rt.testscenes.TriangleTest2.png", 
+            "testimages/rt.testscenes.TriangleTest2 1SPP.png"
+        );
+    }
 
     
 <img src="output/rt.testscenes.TriangleTest3.png"></img>    
@@ -2672,6 +2755,14 @@ Then we can output the hit-record.
     }    
     <test scenes>+=
     new TriangleTest3(),
+    <unit tests>+=
+    @Test 
+    public void testTriangleTest3() {
+        assertImgEquals(
+            "output/rt.testscenes.TriangleTest3.png", 
+            "testimages/rt.testscenes.TriangleTest3 1SPP.png"
+        );
+    }
     
 <h4>Mesh Primitives</h4>
 We provide some meshes that are constructed computationally (procedurally) 
@@ -2810,6 +2901,14 @@ to be precise.
     }
     <test scenes>+=
     new MUC2(),
+    <unit tests>+=
+    @Test 
+    public void testMUC2() {
+        assertImgEquals(
+            "output/rt.testscenes.MUC2.png", 
+            "testimages/rt.testscenes.MUC2 1SPP.png"
+        );
+    }
     
 <img src="output/rt.testscenes.MU3.png"></img>
     [rt/testscenes/MU3.java]= 
@@ -3272,6 +3371,14 @@ Overall:
     }
     <test scenes>+=
     new BSPScene(),
+    <unit tests>+=
+    @Test 
+    public void testBSPScene() {
+        assertImgEquals(
+            "output/rt.testscenes.BSPScene.png", 
+            "testimages/rt.testscenes.BSPScene 1SPP.png"
+        );
+    }
     
 <h2>Spectrum</h2>
 Let us now implement the line   
@@ -3299,7 +3406,12 @@ In this implementation, we work with RGB colors.
             b = 0.f;
         }
         
-        public boolean equals(Spectrum s) {
+        @Override
+        public boolean equals(Object other) {
+            if (other == null) return false;
+            if (other == this) return true;
+            if (!(other instanceof Spectrum)) return false;
+            Spectrum s = (Spectrum)other;
             return s.r == r && s.g == g && b == s.b;
             }
 
@@ -3849,7 +3961,7 @@ a grid pattern.
                 new Ray(new Vector3f(),new Vector3f(0.2f,0.2f,0.2f)), 
                 1.f, 
                 new CSGXYPlane(),
-                new Vector3f()
+                new Vector3f(1,0,0)
                 ), null, 0);
         
         assertEquals(1.f, s.r, 0.0001f);
@@ -3859,7 +3971,7 @@ a grid pattern.
                 new Ray(new Vector3f(),new Vector3f(0.05f,0.2f,0.2f)), 
                 1.f, 
                 new CSGXYPlane(),
-                new Vector3f()
+                new Vector3f(1,0,0)
                 ), null, 0);
         
         assertEquals(0.f, s.r, 0.0001f);
@@ -3881,7 +3993,7 @@ a grid pattern.
                 new Ray(new Vector3f(),new Vector3f(0.2f,0.2f,0.2f)), 
                 1.f, 
                 new CSGXYPlane(),
-                new Vector3f()
+                new Vector3f(1,0,0)
                 ), null);
         
         assertEquals(1.f, s.g, 0.0001f);
@@ -3891,7 +4003,7 @@ a grid pattern.
                 new Ray(new Vector3f(),new Vector3f(0.05f,0.2f,0.2f)), 
                 1.f, 
                 new CSGXYPlane(),
-                new Vector3f()
+                new Vector3f(1,0,0)
                 ), null);
         
         assertEquals(0.f, s.g, 0.0001f);
@@ -4350,7 +4462,7 @@ In blue, we show a vector constructed using polar coordinates on the ipt-normal 
     public void testHitPlanePointPolar2() {
         HitRecord h = new HitRecord(
             new Ray(new Vector3f(), new Vector3f(1.f, 1.f, 0)), 
-            0, null,
+            0, new CSGUnitSphere(),
             new Vector3f(0.f, 1.f, 0)
         );
         Vector3f o = h.hitPlanePointPolar(M.PI/4.f);
@@ -4970,6 +5082,14 @@ Here are two tests demonstrating that the FixedCamera works:
     }
     <test scenes>+=
     new Box(),
+    <unit tests>+=
+    @Test 
+    public void testBox() {
+        assertImgEquals(
+            ImageReader.read("output/rt.basicscenes.Box.png"), 
+            ImageReader.read("testimages/rt.basicscenes.Box 1SPP.png")
+        );
+    }
         
 <img src="output/rt.basicscenes.Dodecahedron.png"></img>
     [rt/basicscenes/Dodecahedron.java]= 
@@ -5067,6 +5187,14 @@ Test scene for pinhole camera specifications.
     <test scenes>+=
     new CameraTestScene(),
 
+    <unit tests>+=
+    @Test 
+    public void testCameraTestScene() {
+        assertImgEquals(
+            ImageReader.read("output/rt.testscenes.CameraTestScene.png"), 
+            ImageReader.read("testimages/rt.testscenes.CameraTestScene 1SPP.png")
+        );
+    }
     
 <h4>CSGScene</h4>
 <img src="output/rt.testscenes.CSGScene.png"></img>
@@ -5397,8 +5525,8 @@ In the unlikely case that the normal and this vector happened to point in the sa
     <unit tests>+=
     @Test 
     public void testMinMax() {
-        assertEquals(1.f, M.min(1,2,3));
-        assertEquals(1.f, M.max(1,-2,-3));
+        assertEqualsX(1.f, M.min(1,2,3));
+        assertEqualsX(1.f, M.max(1,-2,-3));
         
     }
     [rt/M.java]= 
@@ -5630,9 +5758,11 @@ A utility class to help us run benchmarks.
         
         out("testTexture3(1,1) " +  t.lookup(1,1));
         out("testTexture3(2,2) " +  t.lookup(2,2));
-        assertEquals(
-        new Spectrum(0,0,1),
-        t.lookup(2,2)
+        
+        Spectrum ss = t.lookup(2,2);
+        assertEquals(0, ss.r, 0.01f
+        );assertEquals(0, ss.g, 0.01f
+        );assertEquals(1, ss.b, 0.01f
         );
     }
 <h2>Appendix: Image Reader</h2>
@@ -5666,17 +5796,22 @@ A utility class to help us run benchmarks.
             try {
                 return ImageIO.read(new File(fn));
             } catch (Exception e) {
-                System.out.println("fatal, cannot load: "+fn);
-                System.exit(1);
+                throw new RuntimeException("fatal, cannot load: "+fn);
             }
-            assert false;
-            return null;
         }
     }
     <unit tests>+=
     public static void assertImgEquals(BufferedImage i, BufferedImage i2) {
         assertTrue(ImageReader.equals(i, i2));
     }
+    
+    public static void assertImgEquals(String a, String b) {
+        assertImgEquals(
+            ImageReader.read(a), 
+            ImageReader.read(b)
+        );
+    }
+    
     
     <unit tests>+=
     @Test 
