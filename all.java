@@ -76,7 +76,9 @@ A ray is represented by an origin and a direction (need not be a unit vector) in
         
         public Ray(Vector3f origin, Vector3f direction)
         {
-            assert origin != null && direction != null;
+            assert origin != null : "origin may not be null";
+            assert direction != null : "direction mustt be non null";
+            assert !direction.equals(new Vector3f());
             <copy origin and direction>
         }
         <ray methods>
@@ -679,7 +681,13 @@ A hit record is thus constructed as
         assert i != null : "intersectable must be non null";
         assert n != null : "normal must be non null";
         ray = r; t = tt; intersectable = i; 
+        assert M.isApprox(1.f, n.length()) : "normal must be unit vector";
         normal = n;
+    }
+    
+     <math utilities>+=
+    public static boolean isApprox(float exp, float got) {
+        return M.absf(exp-got) <= UnitTests.APPROX;
     }
 
 <h3>Intersectables</h3>
@@ -775,23 +783,43 @@ boundaries, a start and an end, where the ray enters and leaves the solid.
 The returned boundaries of intersection intervals have to be sorted by increasing t.
     <natural order of interval boundaries>=
     public int compareTo(IntervalBoundary b) {
-        return (this.t <= b.t) ? -1 : 1; 
+        return (this.t() <= b.t()) ? -1 : 1; 
     }
 
 An interval boundary is characterized as follows
     <interval boundary class>=
-    public class IntervalBoundary implements Comparable<IntervalBoundary>
+    public static class IntervalBoundary implements Comparable<IntervalBoundary>
     {        
         <t value of csg intersection>
-        public BoundaryType type;        
-        public HitRecord hitRecord;    
+        public final BoundaryType type;        
+        public final HitRecord hitRecord;    
         public BelongsTo belongsTo;
         
-        public IntervalBoundary() {}
-        public IntervalBoundary(float t) {this.t = t;}
-        public IntervalBoundary(float t, HitRecord r) {this(t); this.hitRecord = r;}
+        public float t() {return hitRecord == null ? t : hitRecord.t;}
+        public IntervalBoundary(float t,     BoundaryType type) {this.hitRecord = null; this.t = t; this.type = type;}
+        public IntervalBoundary(HitRecord r, BoundaryType type) {this.hitRecord = r; this.type = type; t = Float.NaN;}
         
         <natural order of interval boundaries>
+    }
+    
+    <unit tests>+=
+    @Test
+    public void testIntervalBoundary() {
+        IntervalBoundary i = new IntervalBoundary(1.f, BoundaryType.START);
+        assertEquals(BoundaryType.START , i.type);
+        assertEquals(1.f, i.t());
+        
+        HitRecord h;
+        i = new IntervalBoundary(
+            h = new HitRecord(
+                new Ray(new Vector3f(), new Vector3f(1,0,0)),
+                2.f,
+                new CSGXYPlane(),
+                new Vector3f()
+            ), BoundaryType.END);
+        assertEquals(BoundaryType.END, i.type);
+        assertEquals(2.f, i.t());
+        assertTrue(i.hitRecord == h);
     }
     
 where
@@ -811,7 +839,7 @@ These values indicate that the volume is never left.
 In this case, the hitRecord attribute of this IntervalBoundary must be null.
 t should also always be equal to hitRecord.t if hitRecord is set.
     <t value of csg intersection>=
-    public float t;    
+    private final float t;    
 
 CSGSolid is the base class of all CSG objects. 
     [rt/intersectables/CSGSolid.java]= 
@@ -862,13 +890,19 @@ It does pretty much the same as Instance does for any Intersectables in general.
             
             // Intersect
             ArrayList<IntervalBoundary> bs = o.getIntervalBoundaries(r);
+            ArrayList<IntervalBoundary> tbs = new ArrayList<>();
             
             // Transform result
             for (IntervalBoundary b : bs) {
                 if (b.hitRecord == null) continue;
-                Instance.transformHitRecord(b.hitRecord, r_, t, tit);
+                tbs.add(
+                    new IntervalBoundary(
+                        Instance.transformHitRecord(b.hitRecord, r_, t, tit),
+                        b.type
+                    )
+                );
             }
-            return bs;
+            return tbs;
         }
     }
     
@@ -956,7 +990,7 @@ are merged according to the set operation specified by the node with the Roth al
         <roth combine intervals>
         <clean up intervals>
 
-        return combined;
+        return reassigned;
     }
 
 During interleaving, we make use of the BelongsTo property of IntervalBoundary.
@@ -991,10 +1025,12 @@ the left child and whether we are currently within any interval of the right chi
     <roth combine intervals>=
         boolean inLeft = false, inRight = false;
         
+        ArrayList<IntervalBoundary> reassigned = new ArrayList<IntervalBoundary>();
         for (IntervalBoundary b : combined) {
             <determine whether we enter or leave some interval of left or right>
             
             // apply operation
+            BoundaryType newType = BoundaryType.START;
             switch (operation) {
                 case INTERSECT: 
                     <apply intersect>
@@ -1008,7 +1044,13 @@ the left child and whether we are currently within any interval of the right chi
                     <apply add>
                     break;
             }
+            
+            if (b.hitRecord != null)
+                reassigned.add(new IntervalBoundary(b.hitRecord, newType));
+            else
+                reassigned.add(new IntervalBoundary(b.t(), newType));
         }
+        combined = null;
         
     <determine whether we enter or leave some interval of left or right>=
     switch (b.belongsTo) {
@@ -1026,16 +1068,16 @@ The "apply operation" phase reclassifies intersection- (or interval boundary-) p
 If we are computing the intersection, an interval boundary is an entering boundary if we are in an interval of both left and right.    
     <apply intersect>=
     if (inLeft && inRight)
-        b.type = BoundaryType.START;
+        newType = BoundaryType.START;
     else
-        b.type = BoundaryType.END;
+        newType = BoundaryType.END;
 <li>        
 If we are computing the subtraction, an interval boundary is an entering boundary if we are in an interval of left and not of right.            
     <apply subtract>=
     if (inLeft && !inRight)
-        b.type = BoundaryType.START;
+        newType = BoundaryType.START;
     else
-        b.type = BoundaryType.END;
+        newType = BoundaryType.END;
 
 In a subtract operation, the subtracted solid is turned inside out,
 or it "switches sign", so we need to flip its normal direction        
@@ -1047,21 +1089,20 @@ or it "switches sign", so we need to flip its normal direction
 If we are computing the union (add operation), any interval boundary is an entering boundary if we are in an interval of either left or right.
     <apply add>=
     if (inLeft || inRight)
-        b.type = BoundaryType.START;
+        newType = BoundaryType.START;
     else
-        b.type = BoundaryType.END;
+        newType = BoundaryType.END;
 </ul>
 In the clean-up phase we remove unnecessary interval boundaries:
 We remove those where we have two boundaries of the same type (START or END) following each other.
     <clean up intervals>=
-    Iterator<IntervalBoundary> it = combined.iterator();
-    IntervalBoundary prev = new IntervalBoundary();
-    prev.type = BoundaryType.END;
+    Iterator<IntervalBoundary> it = reassigned.iterator();
+    BoundaryType prevType = BoundaryType.END;
     while (it.hasNext()) {
         IntervalBoundary b = it.next();
-        if (b.type == prev.type)
+        if (b.type == prevType)
             it.remove();
-        prev.type = b.type;
+        prevType = b.type;
     }
     
     [rt/intersectables/CSGNode.java]= 
@@ -1099,8 +1140,7 @@ for a ray defined by origin o and d.
 <h6>CSGLeaf intersection intervalcomputation</h6>
     <csg leaf get interval boundaries>=
     public ArrayList<IntervalBoundary> getIntervalBoundaries(Ray ray) {
-        <convert finite intersection times to boundaries>
-        <classify intersections>
+        <convert finite intersection times to boundaries and classify>
         <add start end if needed>
         return boundaries;
     }
@@ -1108,20 +1148,21 @@ for a ray defined by origin o and d.
 We construct interval boundaries corresponding by converting the
 all finite intersection times 't' to
 HitRecords and sorting them.
-    <convert finite intersection times to boundaries>=
+    <convert finite intersection times to boundaries and classify>=
         ArrayList<Float> intersectionTimes = getFiniteIntersectionTimes(ray);
         <intersection times empty test>
         ArrayList<IntervalBoundary> boundaries = new ArrayList<IntervalBoundary>(intersectionTimes.size());
         for (Float t : intersectionTimes) {
-            Vector3f q = ray.t(t);
+            Vector3f position = ray.t(t);
+            Vector3f normal = M.normalize(getUnnormalizedNormal(position));
             boundaries.add(new IntervalBoundary(
-                t,
                 new HitRecord(
                     ray,
                     t, 
                     this,
-                    M.normalize(getUnnormalizedNormal(q))
-                )
+                    normal
+                ),
+                <classify intersection>
             ));
         }
         Collections.sort(boundaries);
@@ -1129,34 +1170,30 @@ The list of intersection times t may be null, i.e. empty. In that case, we retur
 boundaries if the origin of the ray is not within the volume, otherwise we go on
 with an empty list of finite intersection times.
     <intersection times empty test>=
+    assert intersectionTimes == null || intersectionTimes.size() > 0;
     if (intersectionTimes == null) 
         if (!isWithinVolume(ray.origin))
             return new ArrayList<IntervalBoundary>();
         else
             intersectionTimes = new ArrayList<Float>();
             
-We then classify the intersections as entering or leaving the volume.
-    <classify intersections>=
-    for (IntervalBoundary b : boundaries) {
-        if (<ray leaves volume>)
-            b.type = BoundaryType.END;
-        else 
-            b.type = BoundaryType.START;
-    }
+We classify the intersections as entering or leaving the volume as follows:
+    <classify intersection>=
+        (<ray leaves volume>) ? BoundaryType.END : BoundaryType.START
 <img src=entercsg.jpg></img>
 The ray leaves the volume when the surface normal (red in the above picture) 
 and ray direction point into the same halfspace, otherwise it enters.
     <ray leaves volume>=
-    M.sameHalfspace(b.hitRecord.normal, ray.direction)
+    M.sameHalfspace(normal, ray.direction)
     
 Finally, we prepend an "enter" boundary at t = -∞ if there is none at the beginning,
 and a "leave" boundary at t = +∞ if there is none at the end of the list.
     <add start end if needed>=
     if (boundaries.isEmpty() || boundaries.get(0).type == BoundaryType.END)
-        boundaries.add(0, new IntervalBoundary(Float.NEGATIVE_INFINITY));
+        boundaries.add(0, new IntervalBoundary(Float.NEGATIVE_INFINITY, BoundaryType.START));
         
     if (boundaries.isEmpty() || boundaries.get(boundaries.size()-1).type == BoundaryType.START)
-        boundaries.add(new IntervalBoundary(Float.POSITIVE_INFINITY));
+        boundaries.add(new IntervalBoundary(Float.POSITIVE_INFINITY, BoundaryType.END));
     
     [rt/intersectables/CSGLeaf.java]= 
     package rt.intersectables;
@@ -1279,6 +1316,7 @@ The method thus boils down to
     @Test
     public void testCSGXYPlane() {
         CSGXYPlane p = new CSGXYPlane();
+        
         assertEquals(0, p.getIntervalBoundaries(
             new Ray(new Vector3f(0,0,1), new Vector3f(1,0,0))
         ).size());
@@ -1288,9 +1326,7 @@ The method thus boils down to
         );
         
         assertEquals(BoundaryType.START, a.get(0).type);
-        
-        assertEquals(Float.NEGATIVE_INFINITY, a.get(0).t);
-        
+        assertEquals(Float.NEGATIVE_INFINITY, a.get(0).t());
         assertEquals(2, a.size());
     }
 
@@ -1356,12 +1392,12 @@ The method thus boils down to
         assertEquals(2, a.size());
         
         assertEquals(BoundaryType.START, a.get(0).type);
-        assertEquals(1.f, a.get(0).t, 0.001f);
+        assertEquals(1.f, a.get(0).t(), 0.001f);
         assertEquals(1.f, a.get(0).hitRecord.t, 0.001f);
         assertEquals(p, a.get(0).hitRecord.intersectable);
         
         assertEquals(BoundaryType.END, a.get(1).type);
-        assertEquals(3.f, a.get(1).t, 0.001f);
+        assertEquals(3.f, a.get(1).t(), 0.001f);
         assertEquals(3.f, a.get(1).hitRecord.t, 0.001f);
         assertEquals(p, a.get(1).hitRecord.intersectable);
     }
@@ -1621,7 +1657,7 @@ You should see nothing on this image, because the plane is exactly at the camera
     <unit tests>+=
     @Test 
     public void testCSGPlaneTest() {
-        assertEquals(
+        assertImgEquals(
             ImageReader.read("output/rt.testscenes.CSGPlaneTest.png"), 
             ImageReader.read("testimages/rt.testscenes.CSGPlaneTest 1SPP.png")
         );
@@ -1645,7 +1681,7 @@ You should see an infinite plane (in debug output) facing you in this test.
         <unit tests>+=
     @Test 
     public void testCSGPlaneTest2() {
-        assertEquals(
+        assertImgEquals(
             ImageReader.read("output/rt.testscenes.CSGPlaneTest2.png"), 
             ImageReader.read("testimages/rt.testscenes.CSGPlaneTest2 1SPP.png")
         );
@@ -2197,7 +2233,7 @@ r_ denotes the original ray.
         Matrix4f m = new Matrix4f(); m.setIdentity();
         m.rotX(3*M.PI/2);
         
-        System.out.println("m"+m);
+        System.out.println("m "+m);
         Intersectable p = new Instance(p_, m);
         
         HitRecord r = p.intersect(new Ray(new Vector3f(0,1,0), new Vector3f(0,0,1)));
@@ -3000,6 +3036,10 @@ x, y, or z coordinates overlap.
         <ray aabb intersection>
         <ray aabb intersect and order>
         <overlaps with other aabb>
+        
+        public String toString() {
+            return "AABB ["+a +", "+b+"]";
+           }
     }
     
     <unit tests>+=
@@ -3983,8 +4023,8 @@ Where
     @Test
     public void testRayBiased() {
         Vector3f x = new Vector3f(1,2,3);
-        assertTrue (x.equals(new Ray(x,x)));
-        assertFalse(x.equals(Ray.biased(x,x)));
+        assertTrue (x.equals(new Ray(x,x).origin));
+        assertFalse(x.equals(Ray.biased(x,x).origin));
     }
    
 avoids "shadow acne".
@@ -4296,7 +4336,8 @@ In blue, we show a vector constructed using polar coordinates on the ipt-normal 
     public void testHitPlanePointPolar() {
         HitRecord h = new HitRecord(
             new Ray(new Vector3f(), new Vector3f(1.f, -1.f, 0)), 
-            0, null,
+            0, 
+            new CSGUnitSphere(),
             new Vector3f(0.f, 1.f, 0)
         );
         Vector3f o = h.hitPlanePointPolar(M.PI/4.f);
@@ -4333,7 +4374,9 @@ v need not be normalized.
     <unit tests>+=
     @Test
     public void testAngleToNormal() {
-        HitRecord h = new HitRecord(null, 0, null, new Vector3f(1.f, 0, 0));
+        HitRecord h = new HitRecord(
+            new Ray(new Vector3f(), new Vector3f(1,0,0)), 
+            0, new CSGUnitSphere(), new Vector3f(1.f, 0, 0));
         float w = h.angleToNormal(new Vector3f(1.f, 1.f, 0));
         assertEquals(Math.PI/4.f, w, 0.0001f);
     }
@@ -4400,7 +4443,7 @@ Let us refract a ray coming from -1,-1,0 on the yz plane at a surface with refra
                 new Vector3f(1.f, 1.f, 0) // to camera
             )),
             0.f,
-            null,
+            new CSGUnitSphere(),
             new Vector3f(1.f, 0.f, 0)
         );
         Refractive m = new Refractive(2.f);
@@ -4419,7 +4462,7 @@ Let us refract a ray coming from -1,-1,0 on the yz plane at a surface with refra
                 new Vector3f(-1.f, 1.f, 0) // to camera
             )),
             0.f,
-            null,
+            new CSGUnitSphere(),
             new Vector3f(1.f, 0.f, 0)
         );
         Refractive m = new Refractive(1.3f);
@@ -5299,6 +5342,12 @@ The dot product can be used to determine whether two vectors n and d lie in the 
     public static boolean sameHalfspace(Vector3f n, Vector3f d) {
         return n.dot(d) > 0;
     }
+    <unit tests>+=
+    @Test 
+    public void testsameHalfspace() {
+        assertTrue(M.sameHalfspace(new Vector3f(1,0,0), new Vector3f(1,1,1)));
+        assertFalse(M.sameHalfspace(new Vector3f(1,0,0), new Vector3f(-1,-1,0)));
+    }
     
 The following function computes ray-sphere intersection times 
 (<a href=http://sci.tuomastonteri.fi/programming/sse/example3>source</a>). 
@@ -5344,6 +5393,14 @@ In the unlikely case that the normal and this vector happened to point in the sa
             t1 = new Vector3f(0,1,0);
             t1.cross(t1, normal);
         }
+        
+    <unit tests>+=
+    @Test 
+    public void testMinMax() {
+        assertEquals(1.f, M.min(1,2,3));
+        assertEquals(1.f, M.max(1,-2,-3));
+        
+    }
     [rt/M.java]= 
     package rt;
     <common imports>
@@ -5353,6 +5410,20 @@ In the unlikely case that the normal and this vector happened to point in the sa
         <ray sphere intersection>
         
         <determine halfspace>
+        
+        public static float min(float... f) {
+            float m = Float.MAX_VALUE;
+            for (float x : f) 
+                m = Math.min(m, x);
+            return m;
+        }
+        
+        public static float max(float... f) {
+            float m = Float.MIN_VALUE;
+            for (float x : f) 
+                m = Math.max(m, x);
+            return m;
+        }
         
         public static Vector3f reflect(Vector3f normal, Vector3f d) {
             return M.sub(M.scale(2 * d.dot(normal), normal), d);
@@ -5532,7 +5603,7 @@ A utility class to help us run benchmarks.
     }
     
     @Test 
-    public void testTexture() {
+    public void testTexture2() {
         BufferedImage bufferedImage = new BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB);
         bufferedImage.setRGB(0,0,Color.RED.getRGB());
         bufferedImage.setRGB(0,1,Color.RED.getRGB());
@@ -5541,14 +5612,14 @@ A utility class to help us run benchmarks.
         
         Texture t = new Texture(bufferedImage);
         
-        System.out.println("testTexture " + t.lookup(0,0));
+        System.out.println("testTexture2 " + t.lookup(0,0));
         assertEquals(
         new Spectrum(1,0,0),
         t.lookup(0,0)
         );
     }
     @Test 
-    public void testTexture2() {
+    public void testTexture3() {
         BufferedImage bufferedImage = new BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB);
         bufferedImage.setRGB(0,0,Color.RED.getRGB());
         bufferedImage.setRGB(0,1,Color.RED.getRGB());
@@ -5557,7 +5628,8 @@ A utility class to help us run benchmarks.
         
         Texture t = new Texture(bufferedImage);
         
-        out("testTexture2 " +  t.lookup(2,2));
+        out("testTexture3(1,1) " +  t.lookup(1,1));
+        out("testTexture3(2,2) " +  t.lookup(2,2));
         assertEquals(
         new Spectrum(0,0,1),
         t.lookup(2,2)
@@ -5569,6 +5641,8 @@ A utility class to help us run benchmarks.
     <common imports>
     public class ImageReader {
         public static boolean equals(BufferedImage image1, BufferedImage image2) {
+            assert image1 != null;
+            assert image2 != null;
             int width;
             int height;
             boolean imagesEqual = true;
@@ -5590,16 +5664,17 @@ A utility class to help us run benchmarks.
         
         public static BufferedImage read(String fn) {
             try {
-                ImageIO.read(new File(fn));
+                return ImageIO.read(new File(fn));
             } catch (Exception e) {
-                System.out.println("fatl, cannot load "+fn);
+                System.out.println("fatal, cannot load: "+fn);
                 System.exit(1);
             }
+            assert false;
             return null;
         }
     }
     <unit tests>+=
-    public static void assertEquals(BufferedImage i, BufferedImage i2) {
+    public static void assertImgEquals(BufferedImage i, BufferedImage i2) {
         assertTrue(ImageReader.equals(i, i2));
     }
     
@@ -5607,17 +5682,17 @@ A utility class to help us run benchmarks.
     @Test 
     public void testImageReaderEquals() {
         BufferedImage in = ImageReader.read("testimages/test.png");
-        assertEquals(in, in);
+        assertImgEquals(in, in);
         
         BufferedImage in2 = ImageReader.read("testimages/test.png");
-        assertEquals(in, in2);
+        assertImgEquals(in, in2);
         
         BufferedImage in3 =  ImageReader.read("testimages/test2.png");
         assertFalse(ImageReader.equals(in, in3));
     }
     @Test 
     public void testImageReaderEquals2() {
-        assertEquals(ImageReader.read("testimages/rt.testscenes.InstancingTest 1SPP.png"), ImageReader.read("testimages/rt.testscenes.InstancingTest 1SPP.png"));
+        assertImgEquals(ImageReader.read("testimages/rt.testscenes.InstancingTest 1SPP.png"), ImageReader.read("testimages/rt.testscenes.InstancingTest 1SPP.png"));
     }
 <h2>Appendix: Obj Reader</h2>
 The only external scene and data description format that we currently support are obj files.
@@ -5823,3 +5898,12 @@ scale scales the object to fit into a cube of the given size
         }
     }
     
+    <unit tests>+=
+    @Test
+    public void testObjAABB() {
+        Intersectable a = ObjReader.read("obj/teapot.obj", 1.f);
+        AABB aabb = a.aabb();
+        out("testObjAABB "+ aabb);
+        assertEqualsX(M.min(aabb.a.x, aabb.a.y, aabb.a.z), -1.f);
+        assertEqualsX(M.max(aabb.b.x, aabb.b.y, aabb.b.z), 1.f);
+    }
