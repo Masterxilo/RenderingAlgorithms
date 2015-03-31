@@ -2032,6 +2032,28 @@ A cube implemented using planes and CSG. The cube occupies the volume [-1,1] x [
         assertEquals(3.f, a.get(1).t(), 0.001f);
         assertEquals(3.f, a.get(1).hitRecord.t, 0.001f);
     }
+<img src="output/rt.testscenes.CSGCubeTest.png"></img>    
+    [rt/testscenes/CSGCubeTest.java]= 
+    package rt.testscenes;
+    <common imports>
+    public class CSGCubeTest extends ObjectTest {
+
+        public CSGCubeTest()
+        {
+            super(new Vector3f(2,2,2));
+            root = new CSGCube();
+        }
+    }
+    <test scenes>+=
+    new CSGCubeTest(),
+    <unit tests>+=
+    @Test 
+    public void testCSGCubeTest() {
+        assertImgEquals(
+            "output/rt.testscenes.CSGCubeTest.png", 
+            "testimages/rt.testscenes.CSGCubeTest 1SPP.png"
+        );
+    }
 <h5>CSGCappedZTunnel</h5>
 A square tunnel from -1 to 1 with an opening at the side +z. The face -z is closed.
     [rt/intersectables/CSGCappedZTunnel.java]= 
@@ -2078,7 +2100,8 @@ A cylinder along the z axis from -0.5 to 0.5 of radius 1.
         
         h = instance.intersect(new Ray(new Vector3f(0.f,0.f,2.f),new Vector3f(0.f,0.f,-1.f)));
         assertTrue(h != null);
-        assertEquals(instance, h.intersectable);
+        assertFalse(instance == h.intersectable);
+        assertTrue(h.intersectable instanceof CSGInfiniteCylinder);
         assertEqualsX(h.t, 1.f);
         
         
@@ -2118,15 +2141,16 @@ A cylinder along the z axis from -0.5 to 0.5 of radius 1.
         List<IntervalBoundary> a = p.getIntervalBoundaries(
             new Ray(new Vector3f(2,0,0), new Vector3f(-1,0,0))
         );
+        assertFalse(null == a);
         assertEquals(2, a.size());
         
         assertEquals(BoundaryType.START, a.get(0).type);
         assertTrue(Float.NEGATIVE_INFINITY == a.get(0).t());
-        assertEquals(p, a.get(0).hitRecord.intersectable);
+        assertEquals(null, a.get(0).hitRecord);
         
         assertEquals(BoundaryType.END, a.get(1).type);
         assertTrue(Float.POSITIVE_INFINITY == a.get(1).t());
-        assertEquals(p, a.get(1).hitRecord.intersectable);
+        assertEquals(null, a.get(1).hitRecord);
         
         a = p.getIntervalBoundaries(
             new Ray(new Vector3f(2,0,2), new Vector3f(-1,0,0))
@@ -2242,8 +2266,18 @@ all faces are
         HitRecord h = instance.intersect(new Ray(new Vector3f(2.f,0.f,0.f),new Vector3f(-1.f,0.f,0.f)));
         
         assertTrue(h != null);
-        assertEquals(instance, h.intersectable);
+        assertFalse(instance == h.intersectable);
+        assertTrue(h.intersectable instanceof CSGXYPlane);
     }
+    <unit tests>+=
+    @Test 
+    public void testCSGDodecahedron() {
+        assertImgEquals(
+            "output/rt.testscenes.CSGDodecahedron.png", 
+            "testimages/rt.testscenes.CSGDodecahedron.png"
+        );
+    }
+ 
 
 <h3>Distance Fields</h3>
 A (signed) distance field is similar to a CSG solid in that it is defined by a function f
@@ -6451,6 +6485,7 @@ In the unlikely case that the normal and this vector happened to point in the sa
             new Ray(new Vector3f(0,0,1), new Vector3f(0,1,0)), // start at z in direction w
             new Vector3f(0,0,1), 0.f // xy plane
             );
+            out("testPlaneIntersection "+f);
         assertTrue(Float.NaN == f);
         
         f =  M.intersectPlane(
@@ -6730,7 +6765,6 @@ A utility class to help us run benchmarks.
         Texture t = new Texture(bufferedImage);
         
         out("testTexture3(1,1) " +  t.lookup(1,1));
-        out("testTexture3(2,2) " +  t.lookup(2,2));
         
         int c = t.cp.getInterpolatedRGBPixel(2* t.cp.getWidth(),2* t.cp.getHeight());
         Color cc = new Color(c, false);
@@ -6911,7 +6945,7 @@ A utility class to help us run benchmarks.
             }
             assert mint != Float.MAX_VALUE;
             assert 0 <= mini && mini < 6;
-            assert mint+UnitTests.APPROX >= 1.f;
+            assert mint+UnitTests.APPROX >= 1.f; // time must be larger than one.
             
             // TODO sample correct orientation
             Vector3f p = M.scale(mint, v);
@@ -7011,8 +7045,8 @@ A utility class to help us run benchmarks.
             try {
             File f= new File(fn);
             String ext = Files.probeContentType(f.toPath());
-            assert ext.equalsIgnoreCase("png") || 
-            ext.equalsIgnoreCase("jpg"); 
+            System.out.println("ext "+ext);
+            //assert ext.equalsIgnoreCase("png") ||  ext.equalsIgnoreCase("jpg"); // TODO fix
             
                 return ImageIO.read(f);
             } catch (Exception e) {
