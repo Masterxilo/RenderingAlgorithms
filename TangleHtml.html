@@ -1,0 +1,28 @@
+<head><meta charset='utf-8'><style>
+pre {
+background-color: #EFEFEF;
+font-family: Consolas;
+font-size: 12px;
+}
+body {
+tab-size:2;
+font-family: sans-serif; 
+}
+img {
+display: block;
+width: 80%;
+}
+</style>
+<script src="./jquery.js"></script>
+<script>
+$(function() {
+$("img").each(function( index ) {
+  console.log( index + ": " + $( this ).text() );
+  $(this).attr('alt', '"'+$(this).attr('src')+'"'
+  + " not found. Failed to render or failed to save or output was recently deleted.");
+  
+});
+console.log("hello");
+})
+</script>
+<body>
