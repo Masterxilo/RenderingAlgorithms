@@ -73,11 +73,12 @@ public class Tangle {
       return l;
     }
   }  
-  
+  static List<String> errors = new ArrayList<>();
   static void ensureBlockWithNameExistsNot(String n) {
     for (Block b : blocks) 
-      if (b.name.equals(n)) 
-        throw new RuntimeException(line()+"block with name '"+n+"' exists , cannot restart");
+      if (b.name.equals(n)) {
+        errors.add(line()+"block with name '"+n+"' exists , cannot restart");
+        }
   }
   
 	static Block blockWithNameOrNull(String n) {
@@ -224,6 +225,13 @@ public class Tangle {
     if (!notFoundErrors.isEmpty()) {
         for (String s : notFoundErrors) 
             System.err.println("block with name '"+s+"' not found among existing, could not do all replacements");
+        ok = false;
+    }
+    
+    
+    if (!errors.isEmpty()) {
+        for (String s : errors) 
+            System.err.println(s);
         ok = false;
     }
     

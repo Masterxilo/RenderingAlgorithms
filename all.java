@@ -211,6 +211,7 @@ We make sure that class names do not clash in our raytracer, so we can always im
     import rt.basicscenes.*;
     import rt.testscenes.*;
     import java.util.*;
+    import java.nio.file.Files;
     import java.util.Collections;
     import java.io.*;
     import rt.intersectables.CSGSolid.*;
@@ -994,7 +995,7 @@ It does pretty much the same as Instance does for any Intersectables in general.
             
             // Transform result
             for (IntervalBoundary b : bs) {
-                if (b.hitRecord == null) continue;
+                if (b.hitRecord == null) {tbs.add(b); continue;}
                 tbs.add(
                     new IntervalBoundary(
                         Instance.transformHitRecord(b.hitRecord, r_, t, tit),
@@ -1004,6 +1005,42 @@ It does pretty much the same as Instance does for any Intersectables in general.
             }
             return tbs;
         }
+    }
+    <unit tests>+=
+    @Test
+    public void testCsgInstanceKeepsInfiniteBoundaries() {
+        CSGSolid p = new CSGXYPlane();
+        
+        List<IntervalBoundary> a = p.getIntervalBoundaries(
+            new Ray(new Vector3f(0,0,-1), new Vector3f(1,0,0))
+        );
+        
+        assertEquals(BoundaryType.START, a.get(0).type);
+        assertTrue(Float.NEGATIVE_INFINITY == a.get(0).t());
+        
+        
+        assertEquals(BoundaryType.END, a.get(1).type);
+        assertTrue(Float.POSITIVE_INFINITY == a.get(1).t());
+        
+        assertEquals(2, a.size());
+        
+        // instance
+        Matrix4f m = new Matrix4f(); m.setIdentity();
+        p = new CSGInstance(p, m);
+        
+         a = p.getIntervalBoundaries(
+            new Ray(new Vector3f(0,0,-1), new Vector3f(1,0,0))
+        );
+        
+        assertEquals(BoundaryType.START, a.get(0).type);
+        assertTrue(Float.NEGATIVE_INFINITY == a.get(0).t());
+        
+        
+        assertEquals(BoundaryType.END, a.get(1).type);
+        assertTrue(Float.POSITIVE_INFINITY == a.get(1).t());
+        
+        assertEquals(2, a.size());
+        
     }
     
 <img src="output/rt.testscenes.CSGInstanceTest.png"></img>
@@ -1427,6 +1464,11 @@ The method thus boils down to
         
         assertEquals(BoundaryType.START, a.get(0).type);
         assertTrue(Float.NEGATIVE_INFINITY == a.get(0).t());
+        
+        
+        assertEquals(BoundaryType.END, a.get(1).type);
+        assertTrue(Float.POSITIVE_INFINITY == a.get(1).t());
+        
         assertEquals(2, a.size());
     }
 
@@ -1725,12 +1767,13 @@ Mathematically speaking a ball.
         assertEquals(BoundaryType.START, a.get(0).type);
         assertEqualsX(1.f, a.get(0).t());
         assertEquals(1.f, a.get(0).hitRecord.t, 0.001f);
-        assertEquals(p, a.get(0).hitRecord.intersectable);
+        assertTrue(p != a.get(0).hitRecord.intersectable);
+        assertTrue(a.get(0).hitRecord.intersectable instanceof CSGUnitSphere);
         
         assertEquals(BoundaryType.END, a.get(1).type);
         assertEquals(3.f, a.get(1).t(), 0.001f);
         assertEquals(3.f, a.get(1).hitRecord.t, 0.001f);
-        assertEquals(p, a.get(1).hitRecord.intersectable);
+        assertFalse(p == a.get(1).hitRecord.intersectable);
     }
     
 <img src="output/rt.testscenes.SphereTest.png"></img>    
@@ -1817,6 +1860,66 @@ Thus, the plane with normal 0,0,1 and d = -2 is the plane z = 2.
         System.out.println("testCSGPlane" + r.normal);
         assertTrue(n.equals(r.normal));
 
+    }    
+    @Test
+    public void testCSGPlane2() {
+        CSGPlane p = new CSGPlane(new Vector3f(0,0,1), 0); // z = 0
+        
+        assertEquals(0, p.getIntervalBoundaries(
+            new Ray(new Vector3f(0,0,1), new Vector3f(1,0,0))
+        ).size());
+        
+        List<IntervalBoundary> a = p.getIntervalBoundaries(
+            new Ray(new Vector3f(0,0,-1), new Vector3f(1,0,0))
+        );
+        
+        assertEquals(BoundaryType.START, a.get(0).type);
+        assertTrue(Float.NEGATIVE_INFINITY == a.get(0).t());
+        
+        
+        assertEquals(BoundaryType.END, a.get(1).type);
+        assertTrue(Float.POSITIVE_INFINITY == a.get(1).t());
+        
+        assertEquals(2, a.size());
+        
+        // hit, never leave
+        a = p.getIntervalBoundaries(
+            new Ray(new Vector3f(0,0,M.PI), new Vector3f(0,0,-1))
+        );
+        
+        assertEquals(BoundaryType.START, a.get(0).type);
+        assertEqualsX(M.PI, a.get(0).t());
+        
+        
+        assertEquals(BoundaryType.END, a.get(1).type);
+        assertTrue(Float.POSITIVE_INFINITY == a.get(1).t());
+        
+        assertEquals(2, a.size());
+    }   
+    @Test
+    public void testCSGPlane3() {
+        CSGPlane p = new CSGPlane(new Vector3f(0,1,0), 2); // y == -2
+        
+        assertEquals(0, p.getIntervalBoundaries(
+            new Ray(new Vector3f(0,1,0), new Vector3f(1,0,0))
+        ).size());
+        
+        assertEquals(0, p.getIntervalBoundaries(
+            new Ray(new Vector3f(0,-1,0), new Vector3f(1,0,0))
+        ).size());
+        
+        List<IntervalBoundary> a = p.getIntervalBoundaries(
+            new Ray(new Vector3f(0,-3,0), new Vector3f(1,0,0))
+        );
+        
+        assertEquals(BoundaryType.START, a.get(0).type);
+        assertTrue(Float.NEGATIVE_INFINITY == a.get(0).t());
+        
+        
+        assertEquals(BoundaryType.END, a.get(1).type);
+        assertTrue(Float.POSITIVE_INFINITY == a.get(1).t());
+        
+        assertEquals(2, a.size());
     }
     
     
@@ -1922,12 +2025,12 @@ A cube implemented using planes and CSG. The cube occupies the volume [-1,1] x [
         assertEquals(BoundaryType.START, a.get(0).type);
         assertEqualsX(1.f, a.get(0).t());
         assertEquals(1.f, a.get(0).hitRecord.t, 0.001f);
-        assertEquals(p, a.get(0).hitRecord.intersectable);
+        assertTrue(p != a.get(0).hitRecord.intersectable);
+        assertTrue(a.get(0).hitRecord.intersectable instanceof CSGXYPlane);
         
         assertEquals(BoundaryType.END, a.get(1).type);
         assertEquals(3.f, a.get(1).t(), 0.001f);
         assertEquals(3.f, a.get(1).hitRecord.t, 0.001f);
-        assertEquals(p, a.get(1).hitRecord.intersectable);
     }
 <h5>CSGCappedZTunnel</h5>
 A square tunnel from -1 to 1 with an opening at the side +z. The face -z is closed.
@@ -1996,12 +2099,13 @@ A cylinder along the z axis from -0.5 to 0.5 of radius 1.
         assertEquals(BoundaryType.START, a.get(0).type);
         assertEqualsX(1.f, a.get(0).t());
         assertEquals(1.f, a.get(0).hitRecord.t, 0.001f);
-        assertEquals(p, a.get(0).hitRecord.intersectable);
+        assertTrue(p != a.get(0).hitRecord.intersectable);
+        assertTrue(a.get(0).hitRecord.intersectable instanceof CSGInfiniteCylinder);
         
         assertEquals(BoundaryType.END, a.get(1).type);
         assertEquals(3.f, a.get(1).t(), 0.001f);
         assertEquals(3.f, a.get(1).hitRecord.t, 0.001f);
-        assertEquals(p, a.get(1).hitRecord.intersectable);
+        assertEquals(a.get(1).hitRecord.intersectable, a.get(0).hitRecord.intersectable);
     }
     // test only the sandwhich
     @Test
@@ -2047,6 +2151,14 @@ to be precise.
     }
     <test scenes>+=
     new UnitCylinderTest(),
+    <unit tests>+=
+    @Test 
+    public void testUnitCylinderTest() {
+        assertImgEquals(
+            "output/rt.testscenes.UnitCylinderTest.png", 
+            "testimages/rt.testscenes.UnitCylinderTest 1SPP.png"
+        );
+    }
 <h5>CSGDodecahedron</h5>
 A dodecahedron implemented using planes and CSG. The dodecahedron has its center at [0,0,0]. 
 All planes are at unit distance from the origin.
@@ -3285,7 +3397,7 @@ to be precise.
 A rectangle given by origin and two delta vectors.
 It points into the direction of the cross product of da with db.
     <rectangle normal>=
-    Vector3f n = M.cross(da, db); 
+    n = M.cross(da, db); 
 <img src=rect.jpg></img>
         
     <rvertex a>=
@@ -3301,7 +3413,7 @@ It points into the direction of the cross product of da with db.
     package rt.intersectables;
     <common imports>
     public class Rectangle extends IntersectableList {
-        Vector3f a, da, db;
+        public Vector3f a, da, db, n;
         public Rectangle(Vector3f a, Vector3f da, Vector3f db) {
             this.a = a; this.da = da; this.db = db;
             
@@ -4423,13 +4535,15 @@ i.e. it points towards the observer (eye).
     
 <li>
     [rt/lightsources/AreaLight.java]= 
+    package rt.lightsources;
     <common imports>
 	public class AreaLight extends Rectangle {
-		Spectrum emission;
+		public Spectrum emission;
 		public AreaLight(Vector3f a, Vector3f da, Vector3f db, Spectrum emission)
 		{
 			super(a,da,db);
             this.emission = emission;
+            this.isLight = true;
 		}
 	}
     
@@ -4458,15 +4572,15 @@ We also need the area to figure out the probability density
 This is easy to implement for a rectangle:
     
         <additional rectangle methods>+=
-        public Vector3f sample(float[] s) {
-            return M.add(a, M.add(M.scale(s[0], da), M.scale(s[1], db)));
+        public float area() {
+            return da.length()*db.length();
         }
         
         <unit tests>+=
         @Test
         public void testRect() {
             Rectangle r = new Rectangle(new Vector3f(), new Vector3f(1,0,0),
-            new Vector3f(0,0,1));
+            new Vector3f(0,1,0));
             assertEqualsX(1 ,r.area());
             Vector3f s = r.sample(
                 new RandomSampler().makeSamples(1,2)[0]
@@ -4499,7 +4613,7 @@ s is the shininess parameter.
 The power deposited per area by and isotropic point light source decreases with 1/r^2,
 and the color of the light source simply multiplies with whatever is reflected.
     <compute contribution s of lightsource l>=
-    Vector3f lightDir = M.sub(l.position, hitRecord.position());
+    Vector3f lightDir = M.sub(lightPos, hitRecord.position());
     float r2 = M.normalizeAndGetLength(lightDir);
     r2 *= r2;
     
@@ -4541,7 +4655,7 @@ Where
    
 avoids "shadow acne".
     <shadow test>=
-    if (!integrator.mutuallyVisible(hitRecord.position(), l.position)) 
+    if (!integrator.mutuallyVisible(hitRecord.position(), lightPos)) 
         continue;
     
     [rt/materials/Blinn.java]= 
@@ -4567,7 +4681,7 @@ avoids "shadow acne".
             for (Intersectable i : integrator.scene.getLightList()) {
                 if (!(i instanceof PointLight)) continue;
                 PointLight l = (PointLight)i;
-                
+                Vector3f lightPos = l.position;
                 <shadow test>
                 <compute contribution s of lightsource l>
                 
@@ -4779,9 +4893,9 @@ This gives mirror-like reflection.
     }
     
     <evaluate spectrum in direction d>=
-        assert hitRecord.ray != null;
-        assert hitRecord.position() != null;
-        assert d != null;
+        assert hitRecord.ray != null : "ray must be non-null";
+        assert hitRecord.position() != null : "hitRecord.position() must be non-null";
+        assert d != null : "d must be non-null";
         return integrator.integrate(Ray.biased(hitRecord.position(), d), depth);
         
 <h4>ReflectionScene</h4>
@@ -5003,8 +5117,25 @@ Let us refract a ray coming from -1,-1,0 on the yz plane at a surface with refra
         assertEquals(-0.919239f, o.y, 0.0001f);
         assertEquals(o.z, 0, 0.0001f);
     }
+    @Test
+    public void testRefract3() {
+        HitRecord h = new HitRecord(
+            new Ray(new Vector3f(), M.negate(
+                new Vector3f(-0.309017f, 0.951057f, 0.f) // to camera
+            )),
+            0.f,
+            new CSGUnitSphere(),
+            new Vector3f(1.f, 0.f, 0)
+        );
+        Refractive m = new Refractive(1.3f);
+        
+        Vector3f o = m.getRefractionDirection(h);
+        assertEquals(null, o);
+    }
+    
     
 <h7>Refractive Material</h7>
+Returns black on total internal reflection.
     [rt/materials/Refractive.java]= 
     package rt.materials;
     <common imports>
@@ -5018,6 +5149,7 @@ Let us refract a ray coming from -1,-1,0 on the yz plane at a surface with refra
         
         public Spectrum evaluateRefraction(HitRecord hitRecord, Integrator integrator, int depth) {
             Vector3f d = getRefractionDirection(hitRecord);
+            if (d == null) return new Spectrum();
             <evaluate spectrum in direction d>
         }
         
@@ -5094,7 +5226,7 @@ Let us refract a ray coming from -1,-1,0 on the yz plane at a surface with refra
 Test scene with a refractive glass block.
 Features a background plane with a debug world position material:
     <construct backplane>=
-    CSGPlane backPlane = new CSGPlane(new Vector3f(0.f, 1.f, 0.f), 0.f);
+    CSGPlane backPlane = new CSGPlane(new Vector3f(0.f, 1.f, 0.f), -0.2f);
     backPlane.setMaterial(new XYZGrid());
 and a glass block occupying half of it (notice that plane-origin offsets are given in the direction opposite to the normal)
     <construct glassblock>=
@@ -5131,6 +5263,41 @@ and a glass block occupying half of it (notice that plane-origin offsets are giv
     }
     <beautiful scenes>+=
     new RefractiveGlassplane(),
+    
+By the way, when you place the back plane, which is using an xyz grid material exactly at 0, it will get strange patterns caused by numerical inaccuracies. (It should theoretically be all red).
+<img src="output/rt.testscenes.RefractiveGlassplane2.png"></img>    
+    [rt/testscenes/RefractiveGlassplane2.java]= 
+    package rt.testscenes;
+    <common imports>
+    public class RefractiveGlassplane2 extends PinholeCameraScene {
+        public RefractiveGlassplane2()
+        {
+            super(new Vector3f(0.f, 3.f, 3.f));
+            setDimensions(512);
+            
+            integratorFactory = new MaterialIntegratorFactory();
+            
+    CSGPlane backPlane = new CSGPlane(new Vector3f(0.f, 1.f, 0.f), 0.f);
+    backPlane.setMaterial(new XYZGrid());
+            <construct glassblock>
+            
+            root = new IntersectableList().add(
+                backPlane,
+                glassblock
+                );
+        }
+        
+    }
+    <beautiful scenes>+=
+    new RefractiveGlassplane2(),
+    <unit tests>+=
+    @Test 
+    public void testRefractiveGlassplane2() {
+        assertImgEquals(
+            "output/rt.testscenes.RefractiveGlassplane2.png", 
+            "testimages/rt.testscenes.RefractiveGlassplane2.png"
+        );
+    }
     
 <h6>Fresnel</h6>
 Natural transparent materials (glass, water) reflect part of the light
@@ -5194,19 +5361,34 @@ In the following image, white means fully reflective, black fully refractive.
     
 <h4>Physically based material, sampling</h4>
 <h5>Area Light Importance Sampling</h5>
+    <compute contribution s of area lightsource l>=
+    Vector3f lightDir = M.sub(lightPos, hitRecord.position());
+    float r2 = M.normalizeAndGetLength(lightDir);
+    r2 *= r2;
+    
+    
+                float cospsi = -lightDir.dot(l.n);
+    
+    Spectrum s = new Spectrum(hitRecord.normal.dot(lightDir)); 
+    s.mult(l.emission);
+    s.mult(cospsi);
+    s.mult(1.f/r2);
+    
     [rt/materials/MaterialArealightSample.java]= 
     package rt.materials;
     <common imports>
     public class MaterialArealightSample extends Material {
-        public Spectrum shade(Spectrum kd, HitRecord hitRecord, Integrator integrator, int depth) {
+        public Spectrum shade(HitRecord hitRecord, Integrator integrator, int depth) {
             Spectrum outgoing = new Spectrum();    
             
             for (Intersectable i : integrator.scene.getLightList()) {
-                if (!(i instanceof PointLight)) continue;
-                PointLight l = (PointLight)i;
+                if (!(i instanceof AreaLight)) continue;
+                AreaLight l = (AreaLight)i;
                 
+                
+    Vector3f lightPos = l.sample(integrator.make2dSample());
                 <shadow test>
-                <compute contribution s of lightsource l>
+                <compute contribution s of area lightsource l>
                 
                 outgoing.add(s);
             }
@@ -5215,16 +5397,59 @@ In the following image, white means fully reflective, black fully refractive.
         }
     } 
     
-    
-        
+<h4>AreaLightScene</h4>
+<img src="output/rt.testscenes.AreaLightScene 32SPP.png"></img>
+	[rt/testscenes/AreaLightScene.java]= 
+	package rt.testscenes;
+	<common imports>
+	public class AreaLightScene extends PinholeCameraScene {
+		public AreaLightScene()
+		{
+			super(new Vector3f(0.f, 0.f, 5.f));
+			setDimensions(512);
+            setSPP(32);
+			integratorFactory = new MaterialIntegratorFactory();
+			
+            // Arealight requires random samples
+            samplerFactory = new RandomSamplerFactory();
+            
+            <ground and back plane>
+            Material m = new MaterialArealightSample();
+            
+            
+            Intersectable sph = 
+				new CSGSphere();
+                
+    groundPlane.setMaterial(m);
+    backPlane.setMaterial(m);
+    sph.setMaterial(m);
+			
+			root =  new IntersectableList().add(
+				groundPlane,
+				backPlane,sph,
+                
+                new AreaLight(
+                new Vector3f(0,3.f,0), 
+                new Vector3f(4.f,0,0), 
+                new Vector3f(0,4.f,0), 
+                new Spectrum(80.f))
+				);
+		}
+	}
+	<beautiful scenes>+=
+	new AreaLightScene(),
+ 
+	
+
+
         
 <h5>BRDF Importance Sampling</h5>
-    [rt/materials/MaterialSampleUniform.java]= 
+    [rt/materials/MaterialSampleCos.java]= 
     package rt.materials;
     <common imports>
-    public class MaterialSampleUniform extends Material {
+    public class MaterialSampleCos extends Material {
         public Spectrum shade(HitRecord hitRecord, Integrator integrator, int depth) {
-        Vector3f d = integrator.sampler.sampleHemisphere();
+        Vector3f d = integrator.sampler.sampleCosDistributionHemisphere();
         
         d = M.xyzAroundNormal(d, hitRecord.normal);
         
@@ -5233,6 +5458,35 @@ In the following image, white means fully reflective, black fully refractive.
         }
     } 
     
+        
+<img src="output/rt.testscenes.PBCosScene.png"></img>
+    [rt/testscenes/PBCosScene.java]= 
+    package rt.testscenes;
+    <common imports>
+    public class PBCosScene extends PinholeCameraScene {
+        public PBCosScene()
+        {
+            super(new Vector3f(0.f, 3.f, 1.f));
+            setDimensions(512);
+            integratorFactory = new MaterialIntegratorFactory();
+            samplerFactory = new RandomSamplerFactory();
+            
+            <ground and back plane>
+            groundPlane.setMaterial(new MaterialSampleCos());
+            backPlane.setMaterial(new MaterialSampleCos());
+            
+            CSGSphere sph = new CSGSphere();
+            sph.setMaterial(new DebugMaterial());
+            
+            root =  new IntersectableList(
+                groundPlane,
+                backPlane,
+                sph
+                );
+        }
+    }
+    <test scenes>+=
+    new PBCosScene(),
 <h5>Uniform Sampling</h5>
     [rt/materials/MaterialSampleUniform.java]= 
     package rt.materials;
@@ -5240,7 +5494,7 @@ In the following image, white means fully reflective, black fully refractive.
     public class MaterialSampleUniform extends Material {
         public Spectrum shade(HitRecord hitRecord, Integrator integrator, int depth) {
         Vector3f d = integrator.sampler.sampleHemisphere();
-        
+        assert integrator.sampler.sampleHemisphere().x != d.x : "random sampling broken";
         d = M.xyzAroundNormal(d, hitRecord.normal);
         
         <evaluate spectrum in direction d>
@@ -5298,6 +5552,9 @@ In the following image, white means fully reflective, black fully refractive.
         Vector3f o = M.xyzAroundNormal(d, n);
         assert o.y >= 0;
         assert M.isApproxUnitvector(o);
+        assert o.y != 1;
+        assert o.x >= -1 && o.x <= 1;
+        assert o.y >= -1 && o.y <= 1;
     }
     
         
@@ -5311,7 +5568,7 @@ In the following image, white means fully reflective, black fully refractive.
             super(new Vector3f(0.f, 3.f, 1.f));
             setDimensions(512);
             integratorFactory = new MaterialIntegratorFactory();
-            
+            samplerFactory = new RandomSamplerFactory();
             
             <ground and back plane>
             groundPlane.setMaterial(new MaterialSampleUniform());
@@ -5329,6 +5586,19 @@ In the following image, white means fully reflective, black fully refractive.
     }
     <test scenes>+=
     new PBScene(),
+    <unit tests>+=
+    @Test 
+    public void testSamHemiPBScene() {
+    Scene s;
+        Sampler ms = (s=new PBScene()).getIntegratorFactory().make(s).sampler;
+        Vector3f h = ms.sampleHemisphere();
+        assertEqualsX(1, h.length());
+        
+        Vector3f h2 = ms.sampleHemisphere();
+        assertEqualsX(1, h2.length());
+        
+        assertNotEqualsX(h, h2);
+    }
     
 <h3>Mix Materials</h3>
 Like the opengl mix function, this mixes between two materials
@@ -5401,6 +5671,16 @@ where d is the dimensionality of the samples.
             <= 1
         );
     }
+    @Test 
+    public void testDisk2() {
+        int bin[] = {0,0};
+        for (int i = 0; i < 10000; i++) {
+            float f[] = new RandomSampler().sampleUnitDisk();
+            if (f[0] > 0 && f[1] > 0) bin[0]++;
+            if (f[0] < 0 && f[1] < 0) bin[1]++;
+        }
+        assert Math.abs(bin[0] - bin[1]) < 2000;
+    }
     
 <h3>Uniform Hemisphere sampling</h3>
 From <a href=http://stackoverflow.com/a/7280889/524504>here</a>.
@@ -5462,8 +5742,8 @@ From <a href=http://stackoverflow.com/a/7280889/524504>here</a>.
         // partition into n bins,
         int n = 20;
         float bin[] = new float[n];
-        
-        for (int i = 0; i < 10*1000; i++) {
+        int N = 10*1000;
+        for (int i = 0; i < N; i++) {
             Vector3f h = new RandomSampler().sampleCosDistributionHemisphere();
             
             float costheta = h.dot(new Vector3f(0,0,1));
@@ -5472,8 +5752,8 @@ From <a href=http://stackoverflow.com/a/7280889/524504>here</a>.
         
         for (int j = 0; j < n; j++) {
             float ct = (float)j/n;
-            out("testSamHemiCosDistr "  + bin[j]);
-            assertEqualsX(M.cosf(ct), bin[j]);
+            out("testSamHemiCosDistr "  + bin[j]/N);
+            assertEqualsX(M.cosf(ct), bin[j]/N);
         }
     }
     
@@ -6166,9 +6446,11 @@ In the unlikely case that the normal and this vector happened to point in the sa
             0.f);
         assertEqualsX(1, f);
         
-        f =  M.intersectPlane(new Ray(new Vector3f(0,0,1), new Vector3f(0,1,0)),
-            new Vector3f(0,0,1),
-            0.f);
+        assert new Vector3f(0,0,1).dot(new Vector3f(0,1,0)) == 0;
+        f =  M.intersectPlane(
+            new Ray(new Vector3f(0,0,1), new Vector3f(0,1,0)), // start at z in direction w
+            new Vector3f(0,0,1), 0.f // xy plane
+            );
         assertTrue(Float.NaN == f);
         
         f =  M.intersectPlane(
@@ -6379,7 +6661,7 @@ A utility class to help us run benchmarks.
     <common imports>
     import ij.process.ColorProcessor;
     public class Texture {
-        ColorProcessor cp;
+        public ColorProcessor cp;
         public Texture(BufferedImage i) {
             cp = new ColorProcessor(i);
         }
@@ -6387,6 +6669,8 @@ A utility class to help us run benchmarks.
             this(ImageReader.read(i));
         }
         public Spectrum lookup(float x, float y) {
+            assert x >= 0 && x <= 1;
+            assert y >= 0 && y <= 1;
             int c = cp.getInterpolatedRGBPixel(x*cp.getWidth(),y*cp.getHeight());
             Color cc = new Color(c, false);
             return new Spectrum(cc.getRed()/255.f, cc.getGreen()/255.f, cc.getBlue()/255.f);
@@ -6394,6 +6678,19 @@ A utility class to help us run benchmarks.
     }
     
     <unit tests>+=
+    
+    @Test 
+    public void testTexturefail() {
+        BufferedImage bufferedImage = new BufferedImage(1, 1, BufferedImage.TYPE_INT_RGB);
+        bufferedImage.setRGB(0,0,Color.WHITE.getRGB());
+        
+        Texture t = new Texture(bufferedImage);
+        try {
+        t.lookup(-1,1);
+        } catch (AssertionError e) {return;}
+        assert false;
+    }
+    
     @Test 
     public void testTexture() {
         BufferedImage bufferedImage = new BufferedImage(1, 1, BufferedImage.TYPE_INT_RGB);
@@ -6435,7 +6732,10 @@ A utility class to help us run benchmarks.
         out("testTexture3(1,1) " +  t.lookup(1,1));
         out("testTexture3(2,2) " +  t.lookup(2,2));
         
-        Spectrum ss = t.lookup(2,2);
+        int c = t.cp.getInterpolatedRGBPixel(2* t.cp.getWidth(),2* t.cp.getHeight());
+        Color cc = new Color(c, false);
+        Spectrum ss = new Spectrum(cc.getRed()/255.f, cc.getGreen()/255.f, cc.getBlue()/255.f);
+            
         assertEquals(0, ss.r, 0.01f
         );assertEquals(0, ss.g, 0.01f
         );assertEquals(1, ss.b, 0.01f
@@ -6493,7 +6793,7 @@ A utility class to help us run benchmarks.
         
     <unit tests>+=
     @Test
-    public Mesh testTriUv() {
+    public void testTriUv() {
         float[] vertices = {
                 0.f, 0.f, 0.f, 
                 1.f, 0.f, 0.f, 
@@ -6512,8 +6812,6 @@ A utility class to help us run benchmarks.
         assertEquals(textureUvs, m.textureUvs);
         assertEqualsX(m.textureUvs[0], 0.f);
         assertEqualsX(m.textureUvs[1], 1.f);
-        
-        return m;
     }
     
     @Test
@@ -6541,6 +6839,7 @@ A utility class to help us run benchmarks.
                 0.f, 0.f, 1.f,
                 0.f, 0.f, 1.f};
             int[] indices = {0, 1, 2};
+            
         float[] textureUvs = {
             0.f, 1.f,
             1.f, 0.f,
@@ -6556,6 +6855,14 @@ A utility class to help us run benchmarks.
     }
     <test scenes>+=
     new TriangleTextureTest(),
+    <unit tests>+=
+    @Test 
+    public void testTriangleTextureTest() {
+        assertImgEquals(
+            "output/rt.testscenes.TriangleTextureTest.png", 
+            "testimages/rt.testscenes.TriangleTextureTest.png"
+        );
+    }
  
     
 <h3>Envmap, Cubemap</h3>
@@ -6610,12 +6917,27 @@ A utility class to help us run benchmarks.
             Vector3f p = M.scale(mint, v);
             assert M.isApprox(1, M.absf(p.x)) || M.isApprox(1, M.absf(p.y)) || M.isApprox(1, M.absf(p.z));
             float u, vv;
-            u = p.x; vv = p.y;
+            u  = M.canonicTo01Interval(p.x);
+            vv = M.canonicTo01Interval(p.y);
+            
             if (M.isApprox(1, u)) u = p.z;
             if (M.isApprox(1, vv)) vv = p.z;
             return textures[mini].lookup(u, vv);
         }
     }
+    
+    <math utilities>+=
+    // -1, 1 to 0 ,1 
+    public static float canonicTo01Interval(float x) {
+        assert x >= -1.1 && x <= 1.1 : "out of range [-1,1]: "+x;
+        return (x+1)/2;
+       }
+       
+       <unit tests>+= 
+       @Test
+       public void testctu() {
+        assertEqualsX(.5f, M.canonicTo01Interval(0));
+       }
     
     [rt/materials/EnvmapMaterial.java]=
     package rt.materials;
@@ -6687,7 +7009,12 @@ A utility class to help us run benchmarks.
         
         public static BufferedImage read(String fn) {
             try {
-                return ImageIO.read(new File(fn));
+            File f= new File(fn);
+            String ext = Files.probeContentType(f.toPath());
+            assert ext.equalsIgnoreCase("png") || 
+            ext.equalsIgnoreCase("jpg"); 
+            
+                return ImageIO.read(f);
             } catch (Exception e) {
                 throw new RuntimeException("fatal, cannot load: "+fn);
             }
