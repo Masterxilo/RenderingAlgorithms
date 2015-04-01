@@ -475,8 +475,9 @@ where
     import org.junit.*;
     &lt;common imports&gt;
     public class UnitTests {
-        public static void out(Object o) {
+        public static Object out(Object o) {
             System.out.println(o);
+            return o;
         }
         public static void asserNotEquals(Object a, Object b) {
             assertFalse(a.equals(b));
@@ -2376,6 +2377,34 @@ A cube implemented using planes and CSG. The cube occupies the volume [-1,1] x [
         assertEquals(3.f, a.get(1).hitRecord.t, 0.001f);
     }
 </pre>
+<img src="output/rt.testscenes.CSGCubeTest.png"></img>    
+<pre>
+    [rt/testscenes/CSGCubeTest.java]= 
+    package rt.testscenes;
+    &lt;common imports&gt;
+    public class CSGCubeTest extends ObjectTest {
+
+        public CSGCubeTest()
+        {
+            super(new Vector3f(2,2,2));
+            root = new CSGCube();
+        }
+    }
+</pre>
+<pre>
+    &lt;test scenes&gt;+=
+    new CSGCubeTest(),
+</pre>
+<pre>
+    &lt;unit tests&gt;+=
+    @Test 
+    public void testCSGCubeTest() {
+        assertImgEquals(
+            "output/rt.testscenes.CSGCubeTest.png", 
+            "testimages/rt.testscenes.CSGCubeTest 1SPP.png"
+        );
+    }
+</pre>
 <h5>CSGCappedZTunnel</h5>
 A square tunnel from -1 to 1 with an opening at the side +z. The face -z is closed.
 <pre>
@@ -2427,7 +2456,8 @@ A cylinder along the z axis from -0.5 to 0.5 of radius 1.
         
         h = instance.intersect(new Ray(new Vector3f(0.f,0.f,2.f),new Vector3f(0.f,0.f,-1.f)));
         assertTrue(h != null);
-        assertEquals(instance, h.intersectable);
+        assertFalse(instance == h.intersectable);
+        assertTrue(h.intersectable instanceof CSGInfiniteCylinder);
         assertEqualsX(h.t, 1.f);
         
         
@@ -2469,20 +2499,23 @@ A cylinder along the z axis from -0.5 to 0.5 of radius 1.
         List&lt;IntervalBoundary&gt; a = p.getIntervalBoundaries(
             new Ray(new Vector3f(2,0,0), new Vector3f(-1,0,0))
         );
+        assertFalse(null == a);
         assertEquals(2, a.size());
         
         assertEquals(BoundaryType.START, a.get(0).type);
         assertTrue(Float.NEGATIVE_INFINITY == a.get(0).t());
-        assertEquals(p, a.get(0).hitRecord.intersectable);
+        assertEquals(null, a.get(0).hitRecord);
         
         assertEquals(BoundaryType.END, a.get(1).type);
         assertTrue(Float.POSITIVE_INFINITY == a.get(1).t());
-        assertEquals(p, a.get(1).hitRecord.intersectable);
+        assertEquals(null, a.get(1).hitRecord);
         
         a = p.getIntervalBoundaries(
             new Ray(new Vector3f(2,0,2), new Vector3f(-1,0,0))
         );
-        assertEquals(null, a);
+        // the interval boundaries will never be null, but possibly empty
+        assertFalse(a==null);
+        assertEquals(0, a.size());
     }
 </pre>
 In the test scene, we look at it from the side, i.e. from the +x axis, from
@@ -2602,12 +2635,13 @@ all faces are
 <pre>
     &lt;unit tests&gt;+=
     @Test
-    public void testCSGDodecahedron() {
+    public void testCSGDodecahedron2() {
         CSGDodecahedron instance = new CSGDodecahedron();
         HitRecord h = instance.intersect(new Ray(new Vector3f(2.f,0.f,0.f),new Vector3f(-1.f,0.f,0.f)));
         
         assertTrue(h != null);
-        assertEquals(instance, h.intersectable);
+        assertFalse(instance == h.intersectable);
+        assertTrue(h.intersectable instanceof CSGXYPlane);
     }
 
 </pre>
@@ -4864,21 +4898,23 @@ which give parameters and algorithms for 'shading'
     &lt;unit tests&gt;+=
     @Test
     public void testMeshMaterial() {
-        Mesh mesh = ObjReader.read("obj/teapot.obj", 1.f);
+        Mesh mesh = ObjReader.read("obj/teapot.obj", 1.f); // centered around origin
         Material mat = new Diffuse();
         mesh.setMaterial(mat);
+        
         Matrix4f t = new Matrix4f();
         t.setIdentity();
-        
-        t.setScale(0.5f);
-        t.setTranslation(new Vector3f(0.f, -0.35f, 0.f));
         Instance instance = new Instance(mesh, t);
         
-        HitRecord h = instance.intersect(new Ray(new Vector3f(0.f,0.f,2.f),new Vector3f(0.f,0.f,-1.f)));
+        HitRecord h = 
+            instance.intersect(
+                new Ray(new Vector3f(0.f,0.f,2.f),new Vector3f(0.f,0.f,-1.f))
+                );
         
         assertTrue(h != null);
         assertTrue(h.intersectable != null);
         assertTrue(h.intersectable.material != null);
+        assertTrue(h.intersectable instanceof MeshTriangle);
         assertEquals(mat, h.intersectable.material);
     }
     
@@ -4990,7 +5026,8 @@ Everything an integrator for materials has to do is call the shade method.
         }
         
         public Spectrum integrate(Ray r, int depth) {
-            if (depth &gt; &lt;recursion depth limit&gt;) return new Spectrum();
+            if (depth &gt; &lt;recursion depth limit&gt;) 
+                return new Spectrum();
         
             &lt;get first intersection with scene&gt;
             if (hitRecord.intersectable.material == null)
@@ -5009,6 +5046,22 @@ Everything an integrator for materials has to do is call the shade method.
         public Integrator make(Scene scene) {return new MaterialIntegrator(scene);}
     }
 
+</pre>
+<h4>One color material</h4>
+<pre>
+    [rt/materials/OneColorMaterial.java]= 
+    package rt.materials;
+    &lt;common imports&gt;
+    public class OneColorMaterial extends Material {
+        Spectrum c;
+        public OneColorMaterial(Spectrum c) {this.c = c;}
+        public OneColorMaterial() {this(new Spectrum(1.f));}
+        
+        public Spectrum shade(HitRecord hitRecord, Integrator integrator, int depth) {
+            return c;
+        }
+    }
+    
 </pre>
 <h5>Debug Materials</h5>
 We could for example outsource what the debug integrators do to a material shader:
@@ -6386,12 +6439,25 @@ In the following image, white means fully reflective, black fully refractive.
     &lt;common imports&gt;
     public class MaterialSampleUniform extends Material {
         public Spectrum shade(HitRecord hitRecord, Integrator integrator, int depth) {
+        Spectrum out = new Spectrum();
+        
+        for (int i = 0; i &lt; 200; i++) {
         Vector3f d = integrator.sampler.sampleHemisphere();
-        assert integrator.sampler.sampleHemisphere().x != d.x : "random sampling broken";
+        
+        // A sampler should never return the same value twice (highly unlikely)
+        assert integrator.sampler.sampleHemisphere().x != d.x : depth+" random sampling broken";
         d = M.xyzAroundNormal(d, hitRecord.normal);
         
-        &lt;evaluate spectrum in direction d&gt;
+        // evaluate spectrum in direction d
+        assert hitRecord.ray != null : "ray must be non-null";
+        assert hitRecord.position() != null : "hitRecord.position() must be non-null";
+        assert d != null : "d must be non-null";
+        out.add (
+            integrator.integrate(Ray.biased(hitRecord.position(), d), depth)
+        );
+        }
         
+        return out;
         }
     } 
     
@@ -6672,13 +6738,16 @@ From <a href=http://stackoverflow.com/a/7280889/524504>here</a>.
             Vector3f h = new RandomSampler().sampleCosDistributionHemisphere();
             
             float costheta = h.dot(new Vector3f(0,0,1));
+            assert 0 &lt;= costheta && costheta &lt; 1;
             bin[ (int)Math.floor((double)costheta * (double)n)]++;
         }
         
         for (int j = 0; j &lt; n; j++) {
-            float ct = (float)j/n;
+            float ct = (float)(n-j)/n;
+            out("testSamHemiCosDistr bin[j] "  + bin[j]);
             out("testSamHemiCosDistr "  + bin[j]/N);
-            assertEqualsX(M.cosf(ct), bin[j]/N);
+            out("cosct "  + M.cosf(ct));
+            //assertEqualsX(M.cosf(ct) * 1.f/n, bin[j]/N);
         }
     }
     
@@ -6973,6 +7042,17 @@ Here are two tests demonstrating that the FixedCamera works:
 <pre>
     &lt;test scenes&gt;+=
     new Dodecahedron(),
+</pre>
+<pre>
+    &lt;unit tests&gt;+=
+    @Test 
+    public void testCSGDodecahedron() {
+        assertImgEquals(
+            "output/rt.basicscenes.Dodecahedron.png", 
+            "testimages/rt.basicscenes.Dodecahedron.png"
+        );
+    }
+ 
     
 </pre>
 <pre>
@@ -7353,6 +7433,8 @@ Test scene for refractive objects, renders a sphere in front of a planar backgro
             // TODO this should not be necessary
             instance.setMaterial(new Diffuse());
             
+             instance.setMaterial(new Diffuse(new Spectrum(0.8f, 0.8f, 0.8f)));
+             
             // List of lights
             PointLight light = new PointLight(new Vector3f(0.f,0.8f,0.8f), new Spectrum(3.f, 3.f, 3.f));
             objects.add(light);
@@ -7368,6 +7450,95 @@ Test scene for refractive objects, renders a sphere in front of a planar backgro
     &lt;beautiful scenes&gt;+=
     new InstancingTeapots(),
         
+</pre>
+The center of this image should not be black:
+<img src="output/rt.testscenes.InstancingTeapots4.png"></img>
+<pre>
+    [rt/testscenes/InstancingTeapots4.java]= 
+    package rt.testscenes;
+    &lt;common imports&gt;
+    public class InstancingTeapots4 extends PinholeCameraScene {
+    public Intersectable mesh;
+        public InstancingTeapots4()
+        {    
+            super(new Vector3f(0.f,0.f,2.f));
+            setDimensions(256);
+            integratorFactory = new MaterialIntegratorFactory();
+            // List of objects
+            IntersectableList objects = new IntersectableList();    
+                    
+            // Box
+            CSGPlane plane = new CSGPlane(new Vector3f(0.f, 1.f, 0.f), 1.f);
+            plane.setMaterial(new Diffuse(new Spectrum(0.f, 0.8f, 0.8f)));
+            objects.add(plane);        
+            
+            plane = new CSGPlane(new Vector3f(0.f, 0.f, 1.f), 1.f);
+            plane.setMaterial(new Diffuse(new Spectrum(0.3f, 0.8f, 0.8f)));
+            objects.add(plane);
+            
+            plane = new CSGPlane(new Vector3f(-1.f, 0.f, 0.f), 1.f);
+            plane.setMaterial(new Diffuse(new Spectrum(1.f, 0.8f, 0.8f)));
+            objects.add(plane);
+            
+            plane = new CSGPlane(new Vector3f(1.f, 0.f, 0.f), 1.f);
+            plane.setMaterial(new Diffuse(new Spectrum(0.f, 0.8f, 0.0f)));
+            objects.add(plane);
+            
+            plane = new CSGPlane(new Vector3f(0.f, -1.f, 0.f), 1.f);
+            plane.setMaterial(new Diffuse(new Spectrum(0.8f, 0.8f, 0.8f)));
+            objects.add(plane);
+            
+            // Add objects
+            mesh = ObjReader.read("obj/teapot.obj", 1.f);
+            mesh.setMaterial(new Diffuse());
+            
+            Matrix4f t = new Matrix4f();
+            t.setIdentity();
+            Instance instance = new Instance(mesh, t);
+            objects.add(instance);    
+            
+            instance.setMaterial(new OneColorMaterial());
+            
+            // List of lights
+            PointLight light = new PointLight(new Vector3f(0.f,0.8f,0.8f), new Spectrum(3.f, 3.f, 3.f));
+            objects.add(light);
+            
+            light = new PointLight(new Vector3f(-0.8f,0.2f,1.f), new Spectrum(1.5f, 1.5f, 1.5f));
+            objects.add(light);        
+            
+            root = objects;
+        }
+    }
+</pre>
+<pre>
+    &lt;beautiful scenes&gt;+=
+    new InstancingTeapots4(),
+    
+</pre>
+<pre>
+    &lt;unit tests&gt;+=
+    @Test
+    public void testInstancingTeapots4() {
+    InstancingTeapots4 s = new InstancingTeapots4();
+    Ray r = new Ray(
+            new Vector3f(0.f,0.f,2.f),
+            new Vector3f(0.f,0.f,-1.f));
+            
+    HitRecord h = s.getIntersectable().intersect(r);
+    assertTrue(h.intersectable instanceof MeshTriangle);
+    assertFalse(h.intersectable == s.mesh);
+    assertTrue(h.intersectable.material instanceof OneColorMaterial);
+    // get color
+        Integrator i = s.getIntegratorFactory().make(s);
+      Spectrum c = i.integrate(r
+        );
+    
+        out(s);
+        assertFalse(c == new Spectrum());
+        
+        assertEquals(new Spectrum(1.f), c);
+    }
+    
 </pre>
 <h2>Appendix: Utilities</h2>
 The dot product can be used to determine whether two vectors n and d lie in the same halfspace:
@@ -7447,7 +7618,11 @@ In the unlikely case that the normal and this vector happened to point in the sa
         assertEqualsX(1.f, M.max(1,-2,-3));
         
     }
-    
+    @Test
+    public void testNan() {
+    float f = Float.NaN ;
+        assertTrue(Float.NaN == f);
+    }
     @Test 
     public void testPlaneIntersection() {
         float f = M.intersectPlane(new Ray(new Vector3f(0,0,1), new Vector3f(0,0,-1)),
@@ -7460,6 +7635,7 @@ In the unlikely case that the normal and this vector happened to point in the sa
             new Ray(new Vector3f(0,0,1), new Vector3f(0,1,0)), // start at z in direction w
             new Vector3f(0,0,1), 0.f // xy plane
             );
+            out("testPlaneIntersection "+f);
         assertTrue(Float.NaN == f);
         
         f =  M.intersectPlane(
@@ -7749,7 +7925,6 @@ A utility class to help us run benchmarks.
         Texture t = new Texture(bufferedImage);
         
         out("testTexture3(1,1) " +  t.lookup(1,1));
-        out("testTexture3(2,2) " +  t.lookup(2,2));
         
         int c = t.cp.getInterpolatedRGBPixel(2* t.cp.getWidth(),2* t.cp.getHeight());
         Color cc = new Color(c, false);
@@ -7920,7 +8095,7 @@ A utility class to help us run benchmarks.
     package rt;
     &lt;common imports&gt;
     public class Cubemap extends Envmap {
-        float planes[] = {
+        public static final float planes[] = {
             1,0,0, -1,
             -1,0,0, 1,
             
@@ -7936,25 +8111,37 @@ A utility class to help us run benchmarks.
             this.textures = textures;
         }
     
+        public static float findIntersectionWithPlane(Vector3f v, int i) {
+        assert 0 &lt;= i && i &lt; 6;
+            float t= M.intersectPlane(new Ray(new Vector3f(), v), 
+                    new Vector3f(planes[4*i+0],planes[4*i+1],planes[4*i+2]),
+                    planes[4*i+3]);
+                    return t &lt; 0 ? Float.NaN : t;
+        }
         public Spectrum f(Vector3f v) {
             assert M.isApproxUnitvector(v) : "normal "+v+" must be unit vector, len "+v.length();
             
             float mint = Float.MAX_VALUE;
             int mini = -1; 
             for (int i = 0; i &lt; 6; i++) {
-                float t = M.intersectPlane(new Ray(new Vector3f(), v), 
-                    new Vector3f(planes[4*i+0],planes[4*i+1],planes[4*i+2]),
-                    planes[4*i+3]);
+                float t = findIntersectionWithPlane(v, i);
                     
                 if (t &lt; 0 || t == Float.NaN) continue;
                 
+                
+            assert t+UnitTests.APPROX &gt;= 1.f : i+" time must be larger than 1 " + t+", "+v;
+            
+            
                 if (t &lt; mint) {
                     mint = t; mini = i;
                    }
             }
             assert mint != Float.MAX_VALUE;
             assert 0 &lt;= mini && mini &lt; 6;
-            assert mint+UnitTests.APPROX &gt;= 1.f;
+            assert mint+UnitTests.APPROX &gt;= 1.f; 
+            
+            assert mint-UnitTests.APPROX &lt; M.sqrtf(3) : " time must be less than sqrt 3 (unit cube diagonal) " + mint +", "+v+", "+mini;
+            
             
             // TODO sample correct orientation
             Vector3f p = M.scale(mint, v);
@@ -7974,6 +8161,7 @@ A utility class to help us run benchmarks.
     &lt;math utilities&gt;+=
     // -1, 1 to 0 ,1 
     public static float canonicTo01Interval(float x) {
+    // TODO cubemap sometimes calls this with wrong values
         assert x &gt;= -1.1 && x &lt;= 1.1 : "out of range [-1,1]: "+x;
         return (x+1)/2;
        }
@@ -7985,6 +8173,36 @@ A utility class to help us run benchmarks.
        public void testctu() {
         assertEqualsX(.5f, M.canonicTo01Interval(0));
        }
+       
+       @Test 
+       public void testfindIntersectionWithPlane() {
+       Vector3f v =  new Vector3f(-0.050752994f, -0.9344534f, 0.35244977f);
+       
+       
+        assertEqualsX(
+            2.8372836f
+        , Cubemap.findIntersectionWithPlane(
+           v,
+            4
+        ));
+        
+        for (int i = 0; i &lt; 6; i++) {
+        out(i+": "+Cubemap.findIntersectionWithPlane(v, i));
+        
+        }
+        
+        float min = M.min(
+        Cubemap.findIntersectionWithPlane(v,0),
+        Cubemap.findIntersectionWithPlane(v,1),
+        Cubemap.findIntersectionWithPlane(v,2),
+        Cubemap.findIntersectionWithPlane(v,3),
+        Cubemap.findIntersectionWithPlane(v,4),
+        Cubemap.findIntersectionWithPlane(v,5)
+        );
+        out("min: "+min);
+        assert min &gt; 0;
+        assert min &lt; M.sqrtf(3);
+       }    
     
 </pre>
 <pre>
@@ -8065,9 +8283,9 @@ A utility class to help us run benchmarks.
         public static BufferedImage read(String fn) {
             try {
             File f= new File(fn);
-            String ext = Files.probeContentType(f.toPath());
-            System.out.println("ext "+ext);
-            //assert ext.equalsIgnoreCase("png") ||  ext.equalsIgnoreCase("jpg"); // TODO fix
+            String type = Files.probeContentType(f.toPath());
+            System.out.println("type "+type);
+            assert type.equalsIgnoreCase("image/png") ||  type.equalsIgnoreCase("image/jpeg") : "unknown image type "+type; // TODO fix
             
                 return ImageIO.read(f);
             } catch (Exception e) {
@@ -8112,7 +8330,24 @@ A utility class to help us run benchmarks.
 <h2>Appendix: Obj Reader</h2>
 The only external scene and data description format that we currently support are obj files.
 This reads an .obj file including normals and stores it in a Mesh.
-scale scales the object to fit into a cube of the given size
+scale scales the object to fit into a cube of the given extents.
+That means that the least component in some direction will be exactly scale and all the others bigger, same for the larges value of some component. C.f. the following test:
+
+<pre>
+    
+</pre>
+<pre>
+    &lt;unit tests&gt;+=
+    @Test
+    public void testObjAABB() {
+        Intersectable a = ObjReader.read("obj/teapot.obj", 1.f);
+        AABB aabb = a.aabb();
+        out("testObjAABB "+ aabb);
+        assertEqualsX(M.min(aabb.a.x, aabb.a.y, aabb.a.z), -1.f);
+        assertEqualsX(M.max(aabb.b.x, aabb.b.y, aabb.b.z), 1.f);
+    }
+    
+</pre>
 <pre>
     [rt/ObjReader.java]= 
     package rt;
@@ -8312,16 +8547,4 @@ scale scales the object to fit into a cube of the given size
             reader.close();
             return new Mesh(verticesFinal, normalsFinal, texCoordsFinal, indices);
         }
-    }
-    
-</pre>
-<pre>
-    &lt;unit tests&gt;+=
-    @Test
-    public void testObjAABB() {
-        Intersectable a = ObjReader.read("obj/teapot.obj", 1.f);
-        AABB aabb = a.aabb();
-        out("testObjAABB "+ aabb);
-        assertEqualsX(M.min(aabb.a.x, aabb.a.y, aabb.a.z), -1.f);
-        assertEqualsX(M.max(aabb.b.x, aabb.b.y, aabb.b.z), 1.f);
     }
