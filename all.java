@@ -5732,12 +5732,19 @@ where d is the dimensionality of the samples.
     @Test 
     public void testDisk2() {
         int bin[] = {0,0};
-        for (int i = 0; i < 10000; i++) {
+        int N = 10*1000;
+        for (int i = 0; i < N; i++) {
             float f[] = new RandomSampler().sampleUnitDisk();
             if (f[0] > 0 && f[1] > 0) bin[0]++;
             if (f[0] < 0 && f[1] < 0) bin[1]++;
         }
+        // approximately the same
         assert Math.abs(bin[0] - bin[1]) < 2000;
+    
+        // proportional to area compared to the whole
+        // every bin contains one quarter
+        out("testDisk2 "+bin[0]/(1.f*N));
+        assert M.absf(bin[0]/(1.f*N) - 1/4) < 0.01f;
     }
     
 <h3>Uniform Hemisphere sampling</h3>
@@ -5768,6 +5775,31 @@ From <a href=http://stackoverflow.com/a/7280889/524504>here</a>.
         assertEqualsX(1, h2.length());
         
         assertNotEqualsX(h, h2);
+    }
+<img src=samhemi.jpg></img>
+    <unit tests>+=
+    @Test 
+    public void testSamHemi2() {
+    
+    float beta = M.PI/6;
+        int bin[] = {0,0};
+        
+        
+        for (int i = 0; i < 10000; i++) {
+            Vector3f h = new RandomSampler().sampleHemisphere();
+            float a = M.acosf(h.z);
+            assert 0 <= a && a <= M.PI/2;
+            if (a < beta) bin[0]++;
+            if (a > M.PI/2-beta) bin[1]++;
+            
+        }
+        // approximately the same
+        assert Math.abs(bin[0] - bin[1]) < 2000;
+        
+        // amount proportional to area compared to the whole
+        float ta = 2*beta/M.PI;
+        out("testSamHemi2 "+bin[0]/(1.f*N));
+        assert M.absf(bin[0]/(1.f*N) - 1/4) < 0.01f;
     }
     
 <h3>Cosine distribution hemisphere sampling</h3>
@@ -6603,7 +6635,7 @@ In the unlikely case that the normal and this vector happened to point in the sa
         assertTrue(Float.isNaN(f));
         assertEquals(0, Float.compare(f, Float.NaN));
         
-        // THIS IS QUITE IMPORTANT
+        // THIS IS QUITE jIMPORTANT
         
         // NaN is really the only floating point number not equal to itself.
     }
@@ -6730,6 +6762,9 @@ In the unlikely case that the normal and this vector happened to point in the sa
         } 
         public static float sinf(float f) {
             return (float)Math.sin(f);
+        }
+        public static float acosf(float f) {
+            return (float)Math.acos(f);
         }
         public static float absf(float f) {
             return (float)Math.abs(f);

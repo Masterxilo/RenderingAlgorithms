@@ -6698,6 +6698,27 @@ From <a href=http://stackoverflow.com/a/7280889/524504>here</a>.
         
         assertNotEqualsX(h, h2);
     }
+</pre>
+<img src=samhemi.jpg></img>
+<pre>
+    &lt;unit tests&gt;+=
+    @Test 
+    public void testSamHemi2() {
+    
+    float beta = M.PI/6;
+        int bin[] = {0,0};
+        
+        
+        for (int i = 0; i &lt; 10000; i++) {
+            Vector3f h = new RandomSampler().sampleHemisphere();
+            float a = M.acosf(h.z);
+            assert 0 &lt;= a && a &lt;= M.PI/2;
+            if (a &lt; beta) bin[0]++;
+            if (a &gt; M.PI/2-beta) bin[1]++;
+            
+        }
+        assert Math.abs(bin[0] - bin[1]) &lt; 2000;
+    }
     
 </pre>
 <h3>Cosine distribution hemisphere sampling</h3>
@@ -7620,15 +7641,31 @@ In the unlikely case that the normal and this vector happened to point in the sa
     }
     @Test
     public void testNan() {
+    // IEEE 754 demands these to be nonequal
     float f = Float.NaN ;
-        assertTrue(Float.NaN == f);
+        assertFalse(Float.NaN == f);
+        
+        // however we can do
+        assertTrue(Float.isNaN(f));
+        assertEquals(0, Float.compare(f, Float.NaN));
+        
+        // THIS IS QUITE jIMPORTANT
+        
+        // NaN is really the only floating point number not equal to itself.
     }
+    // returns both negative and positive values
     @Test 
     public void testPlaneIntersection() {
         float f = M.intersectPlane(new Ray(new Vector3f(0,0,1), new Vector3f(0,0,-1)),
             new Vector3f(0,0,1),
             0.f);
         assertEqualsX(1, f);
+        
+        f = M.intersectPlane(
+        new Ray(new Vector3f(0,0,1), new Vector3f(0,0,1)),
+            new Vector3f(0,0,1),
+            0.f);
+        assertEqualsX(-1, f);
         
         assert new Vector3f(0,0,1).dot(new Vector3f(0,1,0)) == 0;
         f =  M.intersectPlane(
@@ -7741,6 +7778,9 @@ In the unlikely case that the normal and this vector happened to point in the sa
         } 
         public static float sinf(float f) {
             return (float)Math.sin(f);
+        }
+        public static float acosf(float f) {
+            return (float)Math.acos(f);
         }
         public static float absf(float f) {
             return (float)Math.abs(f);
