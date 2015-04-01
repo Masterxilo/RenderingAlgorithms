@@ -226,8 +226,13 @@ We make sure that class names do not clash in our raytracer, so we can always im
 The main executable Java file serves to set up and render some scenes.
 We will render the following (instances of) scenes:
     <rendered scenes>=
-        <test scenes>
-        <beautiful scenes>
+        /*<test scenes>
+        <beautiful scenes>*/
+        
+        new AreaLightScene()
+        ,
+        new PBScene(), new PBCosScene(),
+        new PBBlinnScene(),
     <beautiful scenes>=
     
 that are defined along the way.
@@ -3425,7 +3430,7 @@ to be precise.
 A rectangle given by origin and two delta vectors.
 It points into the direction of the cross product of da with db.
     <rectangle normal>=
-    n = M.cross(da, db); 
+    n = M.cross(da, db); n.normalize();
 <img src=rect.jpg></img>
         
     <rvertex a>=
@@ -4026,7 +4031,7 @@ of the rendering equation, see below.
         
         public static final Spectrum 
             ERROR = new Spectrum(254/255.f, 20/255.f, 237/255.f), 
-            ERROR2 = new Spectrum(0/255.f, 255/255.f, 128/255.f),
+            ERROR2 = new Spectrum(255/255.f, 127/255.f, 39/255.f),
             BACKGROUND = new Spectrum();
     }
     
@@ -4408,7 +4413,7 @@ a grid pattern.
 
         public XYZGrid() {
             this(
-                new Spectrum(0.2f, 0.f, 0.f), 
+                new Spectrum(1.f, 0.f, 0.f), 
                 new Vector3f(0.1f, 0.1f, 0.1f),
                 new Spectrum(1.f, 1.f, 1.f), 
                 new Vector3f(0.3f, 0.3f, 0.3f),
@@ -4672,7 +4677,9 @@ between two points a and b.
     <integrator methods>+=
     public HitRecord visibilityIntersect(Vector3f a, Vector3f b) {
         Vector3f d = M.sub(b, a);
-        HitRecord shadowHit = scene.getIntersectable().intersect(Ray.biased(a, d));
+        HitRecord shadowHit = scene.getIntersectable().intersect(
+            Ray.biased(a, d)
+        );
         if (shadowHit == null || <hit after b>) return null;
         return shadowHit;
     }
@@ -4682,7 +4689,7 @@ between two points a and b.
     }
     
     <hit after b>=
-    shadowHit.t > 1.f
+    shadowHit.t > 0.999f/*1.f*/ 
     
 Where
     <ray methods>+=
@@ -5416,7 +5423,7 @@ In the following image, white means fully reflective, black fully refractive.
     
     Spectrum s = new Spectrum(hitRecord.normal.dot(lightDir)); 
     s.mult(l.emission);
-    s.mult(cospsi);
+  s.mult(cospsi);
     s.mult(1.f/r2);
     
     [rt/materials/MaterialArealightSample.java]= 
@@ -5426,18 +5433,21 @@ In the following image, white means fully reflective, black fully refractive.
         public Spectrum shade(HitRecord hitRecord, Integrator integrator, int depth) {
             Spectrum outgoing = new Spectrum();    
             
+            int N = 1000;
             for (Intersectable i : integrator.scene.getLightList()) {
                 if (!(i instanceof AreaLight)) continue;
                 AreaLight l = (AreaLight)i;
                 
                 
-    Vector3f lightPos = l.sample(integrator.make2dSample());
+            for (int ii = 0; ii < N; ii++) {
+    Vector3f lightPos = l.sample(new RandomSampler().makeSamples(1,2)[0]);//integrator.make2dSample());
                 <shadow test>
                 <compute contribution s of area lightsource l>
                 
                 outgoing.add(s);
             }
-            
+            }
+            outgoing.mult(1.f/N);
             return outgoing;
         }
     } 
@@ -5452,8 +5462,9 @@ In the following image, white means fully reflective, black fully refractive.
 		{
 			super(new Vector3f(0.f, 0.f, 5.f));
 			setDimensions(512);
-            setSPP(32);
-			integratorFactory = new MaterialIntegratorFactory();
+            setSPP(1);
+			integratorFactory = //new NormalDebugIntegratorFactory();
+            new MaterialIntegratorFactory();
 			
             // Arealight requires random samples
             samplerFactory = new RandomSamplerFactory();
@@ -5468,16 +5479,20 @@ In the following image, white means fully reflective, black fully refractive.
     groundPlane.setMaterial(m);
     backPlane.setMaterial(m);
     sph.setMaterial(m);
+    
+    AreaLight l =  new AreaLight(
+                new Vector3f(0.5f,2.f,-0.5f), 
+                
+                new Vector3f(1.f,0,0), 
+                new Vector3f(0,0.1f,1.f), 
+                new Spectrum(20.f));
+                System.out.println("lightnormal "+l.n);
 			
 			root =  new IntersectableList().add(
 				groundPlane,
 				backPlane,sph,
                 
-                new AreaLight(
-                new Vector3f(0,3.f,0), 
-                new Vector3f(4.f,0,0), 
-                new Vector3f(0,4.f,0), 
-                new Spectrum(80.f))
+               l
 				);
 		}
 	}
@@ -5485,22 +5500,76 @@ In the following image, white means fully reflective, black fully refractive.
 	new AreaLightScene(),
  
 	
+<h5>Blinn BRDF Importance Sampling</h5>
+    [rt/materials/MaterialSampleBlinn.java]= 
+    package rt.materials;
+    <common imports>
+    public class MaterialSampleBlinn extends MaterialSampleUniform {
+      
+    
+     public Spectrum shade(HitRecord hitRecord, Integrator integrator, int depth) {
+        if (depth > 1) return new Spectrum();
+        
+        Spectrum out = new Spectrum();
+        int N = 1000;
+        for (int i = 0; i < N; i++) {
+        
+        
+        
+           Vector3f h = integrator.sampler.sampleHalfwayBlinn(200 /* e*/);
 
-
+           // A sampler should never return the same value twice (highly unlikely)
+        //assert integrator.sampler.sampleHemisphere().x != d.x : depth+" random sampling broken";
+        h = M.xyzAroundNormal(h, hitRecord.normal);
+        
+         // reflect w on h
+    Vector3f d = M.reflect(h, hitRecord.w());
+    // in case we are below hemisphere, abort
+          if (d.dot(hitRecord.normal) < 0)  continue;
+    
+        // evaluate spectrum in direction d
+        assert hitRecord.ray != null : "ray must be non-null";
+        assert hitRecord.position() != null : "hitRecord.position() must be non-null";
+        assert d != null : "d must be non-null";
+        Spectrum c = integrator.integrate(Ray.biased(hitRecord.position(), d), depth);
+        assert 0 <= d.dot(hitRecord.normal) && d.dot(hitRecord.normal) <= 1;
+        out.add (
+            c//.mult(d.dot(hitRecord.normal))
+        );
+        }
+        
+        out.mult(1.f/N);
+        
+        return out;
+        }
+        
+        
+    } 
+    
+        
+<img src="output/rt.testscenes.PBBlinnScene.png"></img>
+    [rt/testscenes/PBBlinnScene.java]= 
+    package rt.testscenes;
+    <common imports>
+    public class PBBlinnScene extends PBScene {
+        public PBBlinnScene()
+        {
+            super();
+            groundPlane.setMaterial(new MaterialSampleBlinn());
+            
+        }
+    }
+    <test scenes>+=
+    new PBBlinnScene(),
         
 <h5>BRDF Importance Sampling</h5>
     [rt/materials/MaterialSampleCos.java]= 
     package rt.materials;
     <common imports>
-    public class MaterialSampleCos extends Material {
-        public Spectrum shade(HitRecord hitRecord, Integrator integrator, int depth) {
-        Vector3f d = integrator.sampler.sampleCosDistributionHemisphere();
-        
-        d = M.xyzAroundNormal(d, hitRecord.normal);
-        
-        <evaluate spectrum in direction d>
-        
-        }
+    public class MaterialSampleCos extends MaterialSampleUniform {
+           Vector3f s(Integrator integrator,HitRecord hitRecord) {
+    return integrator.sampler.sampleCosDistributionHemisphere()
+    ;}
     } 
     
         
@@ -5508,26 +5577,12 @@ In the following image, white means fully reflective, black fully refractive.
     [rt/testscenes/PBCosScene.java]= 
     package rt.testscenes;
     <common imports>
-    public class PBCosScene extends PinholeCameraScene {
+    public class PBCosScene extends PBScene {
         public PBCosScene()
         {
-            super(new Vector3f(0.f, 3.f, 1.f));
-            setDimensions(512);
-            integratorFactory = new MaterialIntegratorFactory();
-            samplerFactory = new RandomSamplerFactory();
-            
-            <ground and back plane>
+            super();
             groundPlane.setMaterial(new MaterialSampleCos());
-            backPlane.setMaterial(new MaterialSampleCos());
             
-            CSGSphere sph = new CSGSphere();
-            sph.setMaterial(new DebugMaterial());
-            
-            root =  new IntersectableList(
-                groundPlane,
-                backPlane,
-                sph
-                );
         }
     }
     <test scenes>+=
@@ -5537,24 +5592,35 @@ In the following image, white means fully reflective, black fully refractive.
     package rt.materials;
     <common imports>
     public class MaterialSampleUniform extends Material {
+    Vector3f s(Integrator integrator,HitRecord hitRecord) {
+    return integrator.sampler.sampleHemisphere()
+    ;}
         public Spectrum shade(HitRecord hitRecord, Integrator integrator, int depth) {
-        Spectrum out = new Spectrum();
+        if (depth > 1) return new Spectrum();
         
-        for (int i = 0; i < 200; i++) {
-        Vector3f d = integrator.sampler.sampleHemisphere();
+        Spectrum out = new Spectrum();
+        int N = 1000;
+        for (int i = 0; i < N; i++) {
+        
+        
+        Vector3f d = s(integrator , hitRecord);
         
         // A sampler should never return the same value twice (highly unlikely)
-        assert integrator.sampler.sampleHemisphere().x != d.x : depth+" random sampling broken";
+        //assert integrator.sampler.sampleHemisphere().x != d.x : depth+" random sampling broken";
         d = M.xyzAroundNormal(d, hitRecord.normal);
         
         // evaluate spectrum in direction d
         assert hitRecord.ray != null : "ray must be non-null";
         assert hitRecord.position() != null : "hitRecord.position() must be non-null";
         assert d != null : "d must be non-null";
+        Spectrum c = integrator.integrate(Ray.biased(hitRecord.position(), d), depth);
+        assert 0 <= d.dot(hitRecord.normal) && d.dot(hitRecord.normal) <= 1;
         out.add (
-            integrator.integrate(Ray.biased(hitRecord.position(), d), depth)
+            c//.mult(d.dot(hitRecord.normal))
         );
         }
+        
+        out.mult(1.f/N);
         
         return out;
         }
@@ -5621,19 +5687,29 @@ In the following image, white means fully reflective, black fully refractive.
     package rt.testscenes;
     <common imports>
     public class PBScene extends PinholeCameraScene {
+    static Intersectable sph = new CSGSphere();
+    
+     Intersectable groundPlane,backPlane;
         public PBScene()
         {
-            super(new Vector3f(0.f, 3.f, 1.f));
-            setDimensions(512);
+            super(new Vector3f(0.f, 2.5f, 3.f));
+            setDimensions(256);
+            setSPP(1);
             integratorFactory = new MaterialIntegratorFactory();
             samplerFactory = new RandomSamplerFactory();
             
-            <ground and back plane>
+             groundPlane = new CSGPlane(new Vector3f(0.f, 1.f, 0.f), 1.1f);
+
+     backPlane = new CSGPlane(new Vector3f(0.f, 0.f, 1.f), 3.2f);
+     
+     
+     
             groundPlane.setMaterial(new MaterialSampleUniform());
-            backPlane.setMaterial(new MaterialSampleUniform());
             
-            CSGSphere sph = new CSGSphere();
-            sph.setMaterial(new DebugMaterial());
+            
+            backPlane.setMaterial(new XYZGrid());
+            
+            sph.setMaterial(new XYZGrid());
             
             root =  new IntersectableList(
                 groundPlane,
@@ -5738,8 +5814,8 @@ where d is the dimensionality of the samples.
             if (f[0] > 0 && f[1] > 0) bin[0]++;
             if (f[0] < 0 && f[1] < 0) bin[1]++;
         }
-        // approximately the same
-        assert Math.abs(bin[0] - bin[1]) < 2000;
+        // approximately the same (10%)
+        assert Math.abs(bin[0] - bin[1]) < bin[0]/10;
     
         // proportional to area compared to the whole
         // every bin contains one quarter
@@ -5784,8 +5860,8 @@ From <a href=http://stackoverflow.com/a/7280889/524504>here</a>.
     float beta = M.PI/6;
         int bin[] = {0,0};
         
-        
-        for (int i = 0; i < 10000; i++) {
+        int N = 10*1000;
+        for (int i = 0; i < N; i++) {
             Vector3f h = new RandomSampler().sampleHemisphere();
             float a = M.acosf(h.z);
             assert 0 <= a && a <= M.PI/2;
@@ -5793,14 +5869,32 @@ From <a href=http://stackoverflow.com/a/7280889/524504>here</a>.
             if (a > M.PI/2-beta) bin[1]++;
             
         }
-        // approximately the same
-        assert Math.abs(bin[0] - bin[1]) < 2000;
+        // approximately the same (10%)
+        assert Math.abs(bin[0] - bin[1]) < bin[0]/10;
         
         // amount proportional to area compared to the whole
         float ta = 2*beta/M.PI;
         out("testSamHemi2 "+bin[0]/(1.f*N));
         assert M.absf(bin[0]/(1.f*N) - 1/4) < 0.01f;
     }
+<h3>Blinn sampling</h3>
+   <sampler methods>+=
+     public Vector3f sampleHalfwayBlinn(float e) {
+     
+        float[] xi = makeSamples(1,2)[0];
+        
+        float azimuthal = 2 * M.PI * xi[0];
+        
+        float z = (float)Math.pow(xi[1], 1/(e+1));
+        
+        float xyproj = M.sqrtf(1 - z*z);
+        return new Vector3f(
+            M.cosf(azimuthal) * xyproj,
+            M.sinf(azimuthal) * xyproj,
+            z
+        );
+    }
+    
     
 <h3>Cosine distribution hemisphere sampling</h3>
    <sampler methods>+=
@@ -6880,8 +6974,7 @@ A utility class to help us run benchmarks.
             this(ImageReader.read(i));
         }
         public Spectrum lookup(float x, float y) {
-            assert x >= 0 && x <= 1;
-            assert y >= 0 && y <= 1;
+           // assert x >= 0 && x <= 1;assert y >= 0 && y <= 1;
             int c = cp.getInterpolatedRGBPixel(x*cp.getWidth(),y*cp.getHeight());
             Color cc = new Color(c, false);
             return new Spectrum(cc.getRed()/255.f, cc.getGreen()/255.f, cc.getBlue()/255.f);
@@ -7065,6 +7158,26 @@ A utility class to help us run benchmarks.
     }
     <test scenes>+=
     new TriangleTextureTest(),
+<img src="output/rt.testscenes.MeshTextureTest.png"></img>
+    [rt/testscenes/MeshTextureTest.java]= 
+    package rt.testscenes;
+    <common imports>
+    public class MeshTextureTest extends ObjectTest {//PinholeCameraScene {
+        public MeshTextureTest()
+        {
+            super(new Vector3f(0.f, 0.f, 3.f));
+            root = ObjReader.read("obj/fireman.obj", 0.95f);
+            integratorFactory = new MaterialIntegratorFactory();
+            
+            root.setMaterial(new TextureMaterial("testimages/testTexture.jpg"));
+            
+            root = 
+    new BSPAccelerator(new IntersectableList(root));
+            
+        }
+    }
+    <test scenes>+=
+    new MeshTextureTest(),
     <unit tests>+=
     @Test 
     public void testTriangleTextureTest() {

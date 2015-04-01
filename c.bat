@@ -32,6 +32,8 @@ goto end
 ::if "%ERRORLEVEL%"=="0" (
 mkdir output
 del /F /Q output\*
+
+
 :: Main, create output
 
 echo ====================================================
@@ -39,11 +41,16 @@ java -ea -cp *;. rt.Main
 echo ====================================================
 echo ERRORLEVEL %ERRORLEVEL%
 
+:: !!!
+goto end
+
 :: Unit tests, verify output
 echo ====================================================
 java -ea -cp *;. org.junit.runner.JUnitCore rt.AllTests
 echo ====================================================
 echo ERRORLEVEL %ERRORLEVEL%
 ::)
+
+
 
 :end
